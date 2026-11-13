@@ -1,0 +1,54 @@
+# Python byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+*.env
+
+# Data files (raw datasets, exports)
+*.csv
+*.xlsx
+*.xls
+data/raw/
+data/processed/
+
+# Generated plots and visualization artifacts
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.pdf
+artifacts/plots/
+
+# Model checkpoints and serialized weights
+*.pt
+*.pth
+*.pkl
+*.joblib
+artifacts/models/
+artifacts/
+
+# Testing & linting caches
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.ruff_cache/
+.mypy_cache/
+
+# IDE / Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo

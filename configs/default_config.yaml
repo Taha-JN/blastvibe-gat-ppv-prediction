@@ -1,0 +1,43 @@
+data:
+  raw_path: "data/data.csv"
+  feature_cols:
+    - "DIS"
+    - "CHARGE"
+    - "SD"
+  target_col: "SUM"
+
+cv:
+  n_splits: 5
+  shuffle: true
+  random_state: 42
+
+training:
+  epochs: 300
+  patience: 30
+  eval_interval: 10
+  device: "auto" # "auto", "cuda", or "cpu"
+
+grid_search:
+  k_neighbors:
+    - 4
+    - 8
+    - 12
+  hidden_dim:
+    - 32
+    - 64
+  lr:
+    - 0.01
+    - 0.001
+  weight_decay:
+    - 0.0001
+    - 0.0
+  heads:
+    - 4
+  dropout:
+    - 0.2
+
+artifacts:
+  output_dir: "artifacts"
+  model_dir: "artifacts/models"
+  metrics_file: "artifacts/grid_search_results.csv"
+  best_model_file: "artifacts/models/best_gat_model.pt"
