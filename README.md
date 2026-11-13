@@ -1,6 +1,3 @@
-علت اینکه در پیام‌های قبلی متن تکه می‌شد این بود که داخل خود فایل `README` هم بلوک‌های کد (`````) وجود داشت و باعث می‌شد کادر اصلی زودتر بسته شود. الان کل فایل را داخل یک بلوک **چهار تایی (``````)** قرار دادم تا کل محتوا یک‌جا و بدون هیچ شکستگی با زدن دکمه **Copy** کپی شود:
-
-```markdown
 # BlastVibe-GNN: Inductive Graph Attention Networks for Blast Vibration Prediction
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -12,7 +9,7 @@
 
 ---
 
-## Executive Summary
+## 📖 Executive Summary
 
 **BlastVibe-GNN** is a production-grade Machine Learning pipeline engineered to predict blast-induced ground vibration (Peak Particle Velocity - PPV) using **Graph Attention Networks (GAT)**. Combining domain-specific blast mechanics (USBM Scaled Distance) with geometric deep learning, the architecture models spatial energy dissipation across monitoring networks.
 
@@ -20,7 +17,7 @@ Designed for enterprise reliability, the system implements a **zero-leakage indu
 
 ---
 
-## Architectural Overview
+## 🏗️ Architectural Overview
 
 ```mermaid
 flowchart LR
@@ -54,7 +51,7 @@ flowchart LR
 
 ---
 
-## Key Engineering Features
+## ⚡ Key Engineering Features
 
 - **Leak-Free Inductive Graph Construction**: Eliminated transductive data leakage by constructing a strictly directed bipartite graph during evaluation and inference. Message passing flows exclusively from reference training nodes to unseen query nodes (`train -> query`), preventing target contamination and inter-query leakage.
 - **$O(N \log N)$ Scalability via Spatial Indexing**: Replaced dense $O(N^2)$ pairwise distance matrices (`torch.cdist`) with `scipy.spatial.cKDTree`. This reduces memory overhead from quadratic to linear $O(N)$ and enables logarithmic neighbor lookups, preventing Out-Of-Memory (OOM) bottlenecks on large-scale monitoring datasets.
@@ -65,7 +62,7 @@ flowchart LR
 
 ---
 
-## Empirical Benchmarks (5-Fold CV)
+## 📊 Empirical Benchmarks (5-Fold CV)
 
 | Model Architecture | R² Score | MAE (mm/s) | RMSE (mm/s) | Scientific Assessment |
 | :--- | :--- | :--- | :--- | :--- |
@@ -75,7 +72,7 @@ flowchart LR
 
 ---
 
-## Repository Structure
+## 📁 Repository Structure
 
 ```text
 02_blastvibe-gat-gnn/
@@ -119,7 +116,7 @@ flowchart LR
 
 ---
 
-## Quick Setup
+## 🛠️ Quick Setup
 
 ### Prerequisites
 - **Python**: Version 3.10 or higher
@@ -144,7 +141,7 @@ pip install -e .
 
 ---
 
-## Execution Workflow
+## 🚀 Execution Workflow
 
 ### Step 1: Run Full Training & Benchmark Pipeline
 Execute the end-to-end training pipeline. This ingests the dataset, runs nested CV benchmarks for USBM and XGBoost, performs 5-fold cross-validation across the GAT hyperparameter grid, and trains the final production model with 90/10 early stopping:
@@ -184,11 +181,9 @@ pytest tests/ -v
 
 ---
 
-## Acknowledgments & Dependencies
+## 🙏 Acknowledgments & Dependencies
 
 - **[PyTorch Geometric (PyG)](https://pyg.org/)**: Multi-head Graph Attention Network (`GATConv`) layers.
 - **[SciPy](https://scipy.org/)**: `cKDTree` spatial indexing for $O(N \log N)$ neighbor queries.
 - **[XGBoost](https://xgboost.readthedocs.io/)**: Gradient Boosted Decision Trees baseline.
 - **[Scikit-Learn](https://scikit-learn.org/)**: Preprocessing, cross-validation splitting, and evaluation metrics.
-
-```
