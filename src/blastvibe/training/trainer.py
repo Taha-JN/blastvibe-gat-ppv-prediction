@@ -1,12 +1,13 @@
 import copy
 import os
+import json
 import itertools
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from sklearn.preprocessing import StandardScaler
 
@@ -232,28 +233,44 @@ def run_cross_validation_grid_search(
     results_df.to_csv(metrics_path, index=False)
     logger.info(f"Saved complete grid search metric log to: {metrics_path}")
 
-    # Train Final Production Model on Full Dataset & Persist Serving Artifacts
+    # Train Final Production Model with 90/10 Train/Holdout Early Stopping & Persist Serving Artifacts
     best_model_path = os.path.join(model_dir, "best_gat_model.pt")
     if best_combo is not None:
         logger.info("-" * 40)
         logger.info(
-            f"Fitting Final Production Model on Full Dataset ({len(X)} records) "
-            f"with optimal hyperparameters: {best_combo}"
+            f"Fitting Production Model with 90/10 Train/Holdout Split & Early Stopping ({len(X)} total records) "
+            f"using optimal hyperparameters: {best_combo}"
         )
         logger.info("-" * 40)
 
-        full_scaler_x = StandardScaler()
-        full_scaler_y = StandardScaler()
-        X_full_scaled = full_scaler_x.fit_transform(X)
-        y_full_scaled = full_scaler_y.fit_transform(y.reshape(-1, 1)).reshape(-1)
+        # Phase 3: 90/10 Train/Holdout split to prevent production overfitting
+        X_prod_train, X_prod_val, y_prod_train, y_prod_val = train_test_split(
+            X, y, test_size=0.10, random_state=seed, shuffle=shuffle
+        )
 
-        x_train_ref = torch.tensor(X_full_scaled, dtype=torch.float32, device=device)
-        y_train_full = torch.tensor(y_full_scaled, dtype=torch.float32, device=device)
+        prod_fold_data = prepare_fold_data(
+            X_train_raw=X_prod_train,
+            X_val_raw=X_prod_val,
+            y_train_raw=y_prod_train,
+            y_val_raw=y_prod_val,
+        )
+
+        x_train_ref = torch.tensor(prod_fold_data.X_train_scaled, dtype=torch.float32, device=device)
+        y_train_prod = torch.tensor(prod_fold_data.y_train_scaled, dtype=torch.float32, device=device)
+        x_val_prod = torch.tensor(prod_fold_data.X_val_scaled, dtype=torch.float32, device=device)
 
         full_train_edge_index = build_train_knn_graph(
             x_train_ref,
             k=best_combo["k_neighbors"],
             loop=False,
+        )
+
+        # Build inductive graph for early-stopping validation on production holdout
+        x_eval, eval_edge_index, val_mask = build_inductive_graph(
+            x_train=x_train_ref,
+            x_query=x_val_prod,
+            train_edge_index=full_train_edge_index,
+            k=best_combo["k_neighbors"],
         )
 
         final_model = GATRegressor(
@@ -270,37 +287,87 @@ def run_cross_validation_grid_search(
         )
         criterion = nn.MSELoss()
 
-        final_model.train()
+        best_prod_mae = float("inf")
+        best_prod_state = None
+        epochs_no_improve = 0
+
+        # Phase 3: Early stopping on the holdout validation split
         for epoch in range(1, epochs + 1):
+            final_model.train()
             optimizer.zero_grad()
             out = final_model(x_train_ref, full_train_edge_index)
-            loss = criterion(out, y_train_full)
+            loss = criterion(out, y_train_prod)
             loss.backward()
             optimizer.step()
+
+            if epoch % eval_interval == 0:
+                final_model.eval()
+                with torch.no_grad():
+                    out_eval = final_model(x_eval, eval_edge_index)
+                    pred_val_scaled = out_eval[val_mask].cpu().numpy().reshape(-1, 1)
+                    pred_val_raw = prod_fold_data.scaler_y.inverse_transform(pred_val_scaled).reshape(-1)
+
+                    val_mae = mean_absolute_error(prod_fold_data.y_val_raw, pred_val_raw)
+
+                    if val_mae < best_prod_mae:
+                        best_prod_mae = val_mae
+                        best_prod_state = copy.deepcopy(final_model.state_dict())
+                        epochs_no_improve = 0
+                    else:
+                        epochs_no_improve += eval_interval
+
+                    if patience > 0 and epochs_no_improve >= patience:
+                        logger.info(
+                            f"Production Early Stopping triggered at epoch {epoch} "
+                            f"(Best Holdout Val MAE: {best_prod_mae:.4f})"
+                        )
+                        break
+
+        # Restore optimal checkpoint
+        if best_prod_state is not None:
+            final_model.load_state_dict(best_prod_state)
+            logger.info(f"Loaded best production model weights with holdout MAE: {best_prod_mae:.4f}")
+
+        # Phase 2: Decouple PyTorch weights from Scikit-Learn objects (CWE-502 remediation)
+        scaler_params = {
+            "scaler_x": {
+                "mean": prod_fold_data.scaler_x.mean_.tolist(),
+                "scale": prod_fold_data.scaler_x.scale_.tolist(),
+                "var": prod_fold_data.scaler_x.var_.tolist(),
+            },
+            "scaler_y": {
+                "mean": prod_fold_data.scaler_y.mean_.tolist(),
+                "scale": prod_fold_data.scaler_y.scale_.tolist(),
+                "var": prod_fold_data.scaler_y.var_.tolist(),
+            },
+        }
+        scaler_params_path = os.path.join(model_dir, "scaler_params.json")
+        with open(scaler_params_path, "w", encoding="utf-8") as f:
+            json.dump(scaler_params, f, indent=2)
+        logger.info(f"Saved decoupled scaler parameters to: {scaler_params_path}")
 
         best_bundle = {
             "config": best_combo,
             "model_state_dict": final_model.state_dict(),
-            "scaler_x": full_scaler_x,
-            "scaler_y": full_scaler_y,
+            "scaler_x": prod_fold_data.scaler_x,
+            "scaler_y": prod_fold_data.scaler_y,
             "x_train_ref": x_train_ref.detach().cpu(),
             "train_edge_index": full_train_edge_index.detach().cpu(),
             "oof_predictions": best_oof_preds,
         }
 
+        # Save secure PyTorch model bundle (contains ONLY primitives & tensors - safe for weights_only=True)
         torch.save(
             {
                 "model_state_dict": best_bundle["model_state_dict"],
                 "hyperparameters": best_bundle["config"],
-                "scaler_x": best_bundle["scaler_x"],
-                "scaler_y": best_bundle["scaler_y"],
                 "x_train_ref": best_bundle["x_train_ref"],
                 "train_edge_index": best_bundle["train_edge_index"],
             },
             best_model_path,
         )
         logger.info(
-            f"Successfully serialized production GAT model bundle with reference topology "
+            f"Successfully serialized secure production GAT model bundle with reference topology "
             f"({x_train_ref.size(0)} nodes, {full_train_edge_index.size(1)} edges) to: {best_model_path}"
         )
 

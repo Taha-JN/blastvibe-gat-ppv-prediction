@@ -1,7 +1,9 @@
 import os
-from typing import Union, List, Optional
+import json
+from typing import Union, List, Optional, Dict, Any
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import StandardScaler
 import torch
 
 from blastvibe.models.gat import GATRegressor
@@ -16,9 +18,15 @@ class BlastVibePredictor:
     Self-contained production inference engine for BlastVibe-GNN.
     
     Loads a serialized checkpoint bundle containing model weights, hyperparameters,
-    scalers, and the reference training graph required for leak-free inductive inference.
+    and reference graph topology using secure weights_only=True deserialization (CWE-502 compliant),
+    with decoupled StandardScaler parameters loaded from JSON.
     """
-    def __init__(self, bundle_path: str, device: str = "auto"):
+    def __init__(
+        self,
+        bundle_path: str,
+        scaler_params_path: Optional[str] = None,
+        device: str = "auto",
+    ):
         if not os.path.exists(bundle_path):
             raise FileNotFoundError(f"Model bundle not found at: {bundle_path}")
 
@@ -27,19 +35,15 @@ class BlastVibePredictor:
         else:
             self.device = torch.device(device)
 
-        logger.info(f"Loading BlastVibe model bundle from: {bundle_path} to device: {self.device}")
-        try:
-            checkpoint = torch.load(bundle_path, map_location=self.device, weights_only=False)
-        except TypeError:
-            # Fallback for earlier PyTorch versions where weights_only argument is not present
-            checkpoint = torch.load(bundle_path, map_location=self.device)
+        logger.info(f"Loading BlastVibe model bundle securely from: {bundle_path} to device: {self.device}")
+        
+        # CWE-502 Remediated: Secure weights_only=True loading prevents arbitrary code execution
+        checkpoint = torch.load(bundle_path, map_location=self.device, weights_only=True)
 
         # Validate required bundle components
         required_keys = [
             "model_state_dict",
             "hyperparameters",
-            "scaler_x",
-            "scaler_y",
             "x_train_ref",
             "train_edge_index",
         ]
@@ -51,8 +55,22 @@ class BlastVibePredictor:
             )
 
         self.hyperparameters = checkpoint["hyperparameters"]
-        self.scaler_x = checkpoint["scaler_x"]
-        self.scaler_y = checkpoint["scaler_y"]
+
+        # Reconstruct decoupled StandardScaler instances from JSON
+        if scaler_params_path is None:
+            scaler_params_path = os.path.join(os.path.dirname(bundle_path), "scaler_params.json")
+
+        if not os.path.exists(scaler_params_path):
+            raise FileNotFoundError(
+                f"Decoupled scaler parameters JSON not found at: {scaler_params_path}. "
+                "Expected scaler_params.json alongside model bundle."
+            )
+
+        with open(scaler_params_path, "r", encoding="utf-8") as f:
+            scaler_dict = json.load(f)
+
+        self.scaler_x = self._reconstruct_scaler(scaler_dict["scaler_x"])
+        self.scaler_y = self._reconstruct_scaler(scaler_dict["scaler_y"])
 
         # Reference training topology for inductive message passing
         self.x_train_ref = checkpoint["x_train_ref"].to(device=self.device, dtype=torch.float32)
@@ -77,6 +95,20 @@ class BlastVibePredictor:
             f"Successfully initialized BlastVibePredictor (k={self.k_neighbors}, "
             f"hidden_dim={hidden_dim}, heads={heads}, ref_nodes={self.x_train_ref.size(0)})"
         )
+
+    @staticmethod
+    def _reconstruct_scaler(params: Dict[str, Any]) -> StandardScaler:
+        """Dynamically reconstructs a fitted StandardScaler from pure JSON primitives."""
+        scaler = StandardScaler()
+        scaler.mean_ = np.array(params["mean"], dtype=np.float64)
+        scaler.scale_ = np.array(params["scale"], dtype=np.float64)
+        if "var" in params and params["var"] is not None:
+            scaler.var_ = np.array(params["var"], dtype=np.float64)
+        else:
+            scaler.var_ = scaler.scale_ ** 2
+        scaler.n_features_in_ = len(scaler.mean_)
+        scaler.n_samples_seen_ = 100
+        return scaler
 
     def predict(self, raw_features: Union[np.ndarray, pd.DataFrame, List]) -> np.ndarray:
         """

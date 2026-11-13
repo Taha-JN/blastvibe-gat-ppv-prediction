@@ -1,3 +1,4 @@
+import json
 import pytest
 import numpy as np
 import torch
@@ -6,6 +7,25 @@ from sklearn.preprocessing import StandardScaler
 from blastvibe.models.gat import GATRegressor
 from blastvibe.data.graph import build_train_knn_graph
 from blastvibe.models.predictor import BlastVibePredictor
+
+
+def _save_mock_scaler_params(path_dir, scaler_x, scaler_y):
+    scaler_json_path = path_dir / "scaler_params.json"
+    scaler_params = {
+        "scaler_x": {
+            "mean": scaler_x.mean_.tolist(),
+            "scale": scaler_x.scale_.tolist(),
+            "var": scaler_x.var_.tolist(),
+        },
+        "scaler_y": {
+            "mean": scaler_y.mean_.tolist(),
+            "scale": scaler_y.scale_.tolist(),
+            "var": scaler_y.var_.tolist(),
+        },
+    }
+    with open(scaler_json_path, "w", encoding="utf-8") as f:
+        json.dump(scaler_params, f)
+    return scaler_json_path
 
 
 def test_predictor_mock_roundtrip(tmp_path):
@@ -22,6 +42,7 @@ def test_predictor_mock_roundtrip(tmp_path):
 
     scaler_x = StandardScaler().fit(x_train_raw)
     scaler_y = StandardScaler().fit(y_train_raw)
+    _save_mock_scaler_params(tmp_path, scaler_x, scaler_y)
 
     x_train_ref = torch.tensor(scaler_x.transform(x_train_raw), dtype=torch.float32)
     train_edge_index = build_train_knn_graph(x_train_ref, k=k_neighbors, loop=False)
@@ -30,6 +51,7 @@ def test_predictor_mock_roundtrip(tmp_path):
     model.eval()
 
     bundle_path = tmp_path / "mock_gat_model.pt"
+    # Secure serialization: contains ONLY primitives and tensors (CWE-502 compliant)
     torch.save(
         {
             "model_state_dict": model.state_dict(),
@@ -38,15 +60,13 @@ def test_predictor_mock_roundtrip(tmp_path):
                 "hidden_dim": hidden_dim,
                 "heads": heads,
             },
-            "scaler_x": scaler_x,
-            "scaler_y": scaler_y,
             "x_train_ref": x_train_ref,
             "train_edge_index": train_edge_index,
         },
         str(bundle_path),
     )
 
-    # Instantiate predictor from serialized bundle
+    # Instantiate predictor from serialized bundle with weights_only=True
     predictor = BlastVibePredictor(bundle_path=str(bundle_path), device="cpu")
 
     # 1. Test batch inference
@@ -70,6 +90,10 @@ def test_predictor_missing_keys_fails(tmp_path):
     incomplete_bundle = tmp_path / "incomplete.pt"
     torch.save({"model_state_dict": {}}, str(incomplete_bundle))
 
+    scaler_x = StandardScaler().fit([[1.0, 2.0, 3.0]])
+    scaler_y = StandardScaler().fit([[10.0]])
+    _save_mock_scaler_params(tmp_path, scaler_x, scaler_y)
+
     with pytest.raises(KeyError, match="missing required production components"):
         BlastVibePredictor(str(incomplete_bundle))
 
@@ -82,14 +106,13 @@ def test_predictor_invalid_feature_dimension(tmp_path):
 
     scaler_x = StandardScaler().fit(x_train_ref.numpy())
     scaler_y = StandardScaler().fit(np.arange(20).reshape(-1, 1))
+    _save_mock_scaler_params(tmp_path, scaler_x, scaler_y)
 
     bundle_path = tmp_path / "bundle.pt"
     torch.save(
         {
             "model_state_dict": model.state_dict(),
             "hyperparameters": {"k_neighbors": 3, "hidden_dim": 8, "heads": 1},
-            "scaler_x": scaler_x,
-            "scaler_y": scaler_y,
             "x_train_ref": x_train_ref,
             "train_edge_index": train_edge_index,
         },

@@ -17,6 +17,7 @@ ENV/
 
 # Data files (raw datasets, exports)
 *.csv
+!data/data.csv
 *.xlsx
 *.xls
 data/raw/

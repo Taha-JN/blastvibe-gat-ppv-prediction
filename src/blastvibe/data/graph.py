@@ -1,4 +1,6 @@
 from typing import Tuple, Optional
+import numpy as np
+from scipy.spatial import cKDTree
 import torch
 
 from blastvibe.utils.logger import setup_logger
@@ -100,12 +102,16 @@ def build_inductive_graph(
     x_query = x_query.to(device=device, dtype=x_train.dtype)
     train_edge_index = train_edge_index.to(device)
 
-    # Pure PyTorch vectorized cross-distance computation:
-    # dist[i, j] = Euclidean distance between query node i and train node j. Shape: [n_query, n_train]
-    dist = torch.cdist(x_query, x_train)
+    # Scalable O(N log N) nearest neighbor search via Scipy cKDTree
+    # Replaces O(N^2) dense pairwise distance matrix (torch.cdist) to prevent enterprise memory exhaustion / OOM
+    x_train_np = x_train.detach().cpu().numpy()
+    x_query_np = x_query.detach().cpu().numpy()
 
-    # For each query node i, find indices of the k nearest training nodes
-    _, neighbor_indices = torch.topk(dist, k=k, dim=1, largest=False)
+    tree = cKDTree(x_train_np)
+    _, neighbor_indices_np = tree.query(x_query_np, k=k)
+    neighbor_indices_np = np.asarray(neighbor_indices_np).reshape(n_query, k)
+
+    neighbor_indices = torch.as_tensor(neighbor_indices_np, dtype=torch.long, device=device)
 
     # Source nodes: nearest train nodes (indices in 0 .. n_train - 1)
     src_nodes = neighbor_indices.flatten()
