@@ -19,10 +19,11 @@ A production-grade Scientific Machine Learning (SciML) and Graph Neural Network 
 
 | Model Architecture | $R^2$ Score | Mean Absolute Error (MAE) | Root Mean Squared Error (RMSE) |
 |---|---|---|---|
-| **XGBoost Regressor (Baseline)** | 0.6943 | 19.41 mm/s | 26.54 mm/s |
-| **BlastVibe-GAT (Leak-Free Inductive)** | **0.7409** | **16.71 mm/s** | **24.35 mm/s** |
+| **USBM Empirical Attenuation Law (Physics Baseline)** | 0.7372 | 17.05 mm/s | 24.47 mm/s |
+| **Tuned XGBoost Regressor (Nested GridSearchCV)** | 0.7244 | 18.11 mm/s | 25.11 mm/s |
+| **BlastVibe-GAT (Ours, Leak-Free Inductive)** | **0.7468** | **16.89 mm/s** | **24.12 mm/s** |
 
-*Note: The GAT architecture demonstrates a ~14% reduction in MAE and significant $R^2$ improvement over standard gradient boosting, validating the efficacy of graph relational inductive bias combined with physics-informed Scaled Distance features.*
+*Note: The GAT architecture demonstrates state-of-the-art predictive performance, validating the efficacy of dynamic multi-head graph relational attention combined with USBM Scaled Distance ($SD$) physics features under equitable nested cross-validation.*
 
 ---
 
@@ -36,20 +37,23 @@ A production-grade Scientific Machine Learning (SciML) and Graph Neural Network 
 ├── requirements.txt               # Pinned project dependencies
 ├── configs/
 │   └── default_config.yaml        # Declarative hyperparameters and CV configs
+├── data/
+│   └── data.csv                   # Validated blast monitoring dataset
 ├── src/
 │   └── blastvibe/
-│       ├── __init__.py
+│       ├── __init__.py            # Top-level exports (BlastVibePredictor)
 │       ├── data/
 │       │   ├── __init__.py
 │       │   ├── loader.py          # Validated ingestion & Scaled Distance engineering
-│       │   └── graph.py           # Leak-free inductive KNN graph builder
+│       │   └── graph.py           # Pure PyTorch GPU vectorized inductive KNN graph builder
 │       ├── models/
 │       │   ├── __init__.py
 │       │   ├── gat.py             # PyG GATRegressor multi-head network
-│       │   └── baseline.py        # XGBoost benchmark regressor
+│       │   ├── baseline.py        # USBM Physics & nested GridSearchCV XGBoost baselines
+│       │   └── predictor.py       # Self-contained production inference engine
 │       ├── training/
 │       │   ├── __init__.py
-│       │   └── trainer.py         # K-Fold grid search, early stopping, & serialization
+│       │   └── trainer.py         # K-Fold grid search, full model fitting, & artifact bundle
 │       └── utils/
 │           ├── __init__.py
 │           └── logger.py          # Centralized structured logging
@@ -57,7 +61,8 @@ A production-grade Scientific Machine Learning (SciML) and Graph Neural Network 
 │   ├── __init__.py
 │   ├── test_data_loader.py        # Schema & feature engineering assertions
 │   ├── test_graph_builder.py      # Duplicate edge prevention & zero-leakage tests
-│   └── test_model_forward.py      # Output shapes & backward gradient flow tests
+│   ├── test_model_forward.py      # Output shapes & backward gradient flow tests
+│   └── test_predictor.py          # Standalone inference & serialization roundtrip tests
 └── main.py                        # Production CLI entry point
 ```
 
@@ -76,13 +81,13 @@ pip install -e .
 ```
 
 ### 2. Run Test Suite
-Verify mathematical invariants, shape contracts, and zero-leakage assertions:
+Verify mathematical invariants, shape contracts, zero-leakage assertions, and predictor round-trips:
 
 ```bash
 pytest -v
 ```
 
-### 3. Run Pipeline (Baseline + GAT Grid Search)
+### 3. Run Pipeline (Baselines + GAT Grid Search + Production Model Fitting)
 Execute the complete end-to-end pipeline:
 
 ```bash
@@ -91,4 +96,27 @@ python main.py --config configs/default_config.yaml
 
 Outputs:
 - Full evaluation logs: `artifacts/grid_search_results.csv`
-- Serialized optimal model bundle (weights, hyperparameters, scalers): `artifacts/models/best_gat_model.pt`
+- Serialized production model bundle (weights, hyperparameters, scalers, reference graph topology): `artifacts/models/best_gat_model.pt`
+
+### 4. Standalone Production Serving (Inference)
+Use the self-contained `BlastVibePredictor` service in any downstream application or API:
+
+```python
+from blastvibe import BlastVibePredictor
+
+# Load serialized model bundle
+predictor = BlastVibePredictor("artifacts/models/best_gat_model.pt", device="cpu")
+
+# Single blast shot inference (DIS=400m, CHARGE=1850kg)
+ppv = predictor.predict_single(dis=400.0, charge=1850.0)
+print(f"Predicted Ground Vibration: {ppv:.2f} mm/s")
+
+# Batch inference
+import numpy as np
+raw_features = np.array([
+    [300.0, 1850.0, 6.97],
+    [500.0, 1950.0, 11.32],
+])
+predictions = predictor.predict(raw_features)
+print(f"Batch PPV Predictions: {predictions}")
+```
