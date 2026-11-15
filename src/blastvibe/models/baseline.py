@@ -80,28 +80,14 @@ def run_usbm_baseline(
         raise ValueError("Target PPV must be strictly positive for USBM log transformation.")
 
     for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
-        sd_train, y_train = sd_all[train_idx], y[train_idx]
-        sd_val, y_val = sd_all[val_idx], y[val_idx]
+        fold_model = USBMRegressor(sd_index=sd_index)
+        fold_model.fit(X[train_idx], y[train_idx])
 
-        # Log transform
-        log_sd_train = np.log(sd_train).reshape(-1, 1)
-        log_y_train = np.log(y_train)
+        k_params.append(fold_model.K_val)
+        beta_params.append(fold_model.beta_val)
 
-        reg = LinearRegression()
-        reg.fit(log_sd_train, log_y_train)
-
-        # Extract USBM physical parameters: ln(PPV) = intercept + slope * ln(SD)
-        intercept = reg.intercept_
-        slope = reg.coef_[0]
-        K_val = float(np.exp(intercept))
-        beta_val = float(-slope)
-
-        k_params.append(K_val)
-        beta_params.append(beta_val)
-
-        # Predict out-of-sample
-        log_sd_val = np.log(sd_val).reshape(-1, 1)
-        pred_val = np.exp(reg.predict(log_sd_val))
+        y_val = y[val_idx]
+        pred_val = fold_model.predict(X[val_idx])
         oof_predictions[val_idx] = pred_val
 
         r2_scores.append(r2_score(y_val, pred_val))

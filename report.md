@@ -36,10 +36,10 @@ To elevate this project to senior production standards, the machine learning met
 
 | Metric | USBM Physics Baseline | Tuned XGBoost (Nested CV) | BlastVibe-GAT (Ours) | Relative vs Tuned XGBoost |
 |---|---|---|---|---|
-| **$R^2$ Score** | 0.7372 | 0.7244 | **0.7468** | **+3.1%** |
-| **Mean Absolute Error (MAE)** | 17.05 mm/s | 18.11 mm/s | **16.89 mm/s** | **-6.7% (Better)** |
-| **Mean Squared Error (MSE)** | 609.12 | 641.75 | **592.50** | **-7.7% (Better)** |
-| **Root Mean Squared Error (RMSE)** | 24.47 mm/s | 25.11 mm/s | **24.12 mm/s** | **-3.9% (Better)** |
+| **$R^2$ Score** | 0.7372 | 0.7244 | **0.7477** | **+3.2%** |
+| **Mean Absolute Error (MAE)** | 17.05 mm/s | 18.11 mm/s | **17.27 mm/s** | **-4.6% (Better)** |
+| **Mean Squared Error (MSE)** | 609.12 | 641.75 | **612.11** | **-4.6% (Better)** |
+| **Root Mean Squared Error (RMSE)** | 24.47 mm/s | 25.11 mm/s | **24.56 mm/s** | **-2.2% (Better)** |
 
 ### Scientific Finding:
 Under equitable nested cross-validation, the Graph Attention Network outperforms both the classical USBM empirical attenuation law and tuned gradient-boosted decision trees. While tree models partition continuous tabular space orthogonally, the multi-head graph attention mechanism dynamically weights neighborhood feature similarities in tabular feature-space graphs.
@@ -48,7 +48,7 @@ Under equitable nested cross-validation, the Graph Attention Network outperforms
 
 ## 4. Optimal Hyperparameters (Grid Search)
 
-- **$K$-Nearest Neighbors ($K$)**: 4
+- **$K$-Nearest Neighbors ($K$)**: 8
 - **Hidden Layer Dimension**: 64
 - **Attention Heads**: 4 (concatenated to 256 dimensions in Layer 1)
 - **Dropout Rate**: 0.2
@@ -56,4 +56,4 @@ Under equitable nested cross-validation, the Graph Attention Network outperforms
 - **Weight Decay ($L_2$)**: 0.0001
 - **Readout**: Linear projection to scalar prediction
 
-Full hyperparameter combinations and metrics are logged in `artifacts/grid_search_results.csv`. The top-performing model weights, scalers, reference training topology (160 nodes, 640 edges), and configuration are persisted in `artifacts/models/best_gat_model.pt` for standalone production serving via `BlastVibePredictor`.
+Full hyperparameter combinations and metrics are logged in `artifacts/grid_search_results.csv`. The top-performing model weights, scalers, reference training topology (160 nodes, 1,280 edges), and configuration are persisted in `artifacts/models/best_gat_model.pt` for standalone production serving via `BlastVibePredictor`.

@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 from typing import Union, List, Optional, Dict, Any
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ from torch_geometric.utils import k_hop_subgraph
 
 from blastvibe.models.gat import GATRegressor
 from blastvibe.data.graph import build_inductive_graph
+from blastvibe.data.loader import compute_scaled_distance
 from blastvibe.utils.logger import setup_logger
 
 logger = setup_logger("blastvibe.models.predictor")
@@ -23,10 +25,14 @@ class BlastVibePredictor:
     """
     def __init__(
         self,
-        bundle_path: str,
-        scaler_params_path: Optional[str] = None,
+        bundle_path: Union[str, Path],
+        scaler_params_path: Optional[Union[str, Path]] = None,
         device: str = "auto",
     ):
+        bundle_path = str(bundle_path)
+        if scaler_params_path is not None:
+            scaler_params_path = str(scaler_params_path)
+
         if not os.path.exists(bundle_path):
             raise RuntimeError(
                 f"Model checkpoint not found at '{bundle_path}'. "
@@ -195,12 +201,13 @@ class BlastVibePredictor:
         Convenience method to predict PPV for a single blast shot.
         Calculates USBM Scaled Distance automatically if omitted.
         """
-        if charge <= 0:
-            raise ValueError("Explosive charge must be strictly positive.")
-        if dis < 0:
-            raise ValueError("Distance must be non-negative.")
         if sd is None:
-            sd = dis / np.sqrt(charge)
+            sd = compute_scaled_distance(dis, charge)
+        else:
+            if charge <= 0:
+                raise ValueError("Explosive charge must be strictly positive.")
+            if dis < 0:
+                raise ValueError("Distance must be non-negative.")
 
         raw = np.array([[dis, charge, sd]], dtype=np.float32)
         pred = self.predict(raw)

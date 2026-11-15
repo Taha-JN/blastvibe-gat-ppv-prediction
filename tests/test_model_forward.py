@@ -1,7 +1,42 @@
 import torch
 import torch.nn as nn
-from blastvibe.models.gat import GATRegressor
+from blastvibe.models.gat import GATRegressor, FlexibleGATRegressor
 from blastvibe.data.graph import build_train_knn_graph
+
+
+def test_flexible_gat_dynamic_layers():
+    """Asserts that GATRegressor / FlexibleGATRegressor dynamically constructs N layers."""
+    torch.manual_seed(42)
+    n_nodes = 20
+    in_dim = 3
+    hidden_dims = [48, 24, 12]
+    heads = 3
+
+    x = torch.randn(n_nodes, in_dim)
+    edge_index = build_train_knn_graph(x, k=4, loop=False)
+
+    model = FlexibleGATRegressor(
+        in_dim=in_dim,
+        hidden_dims=hidden_dims,
+        heads=heads,
+        dropout=0.1,
+    )
+    assert len(model.convs) == 3
+    # First 2 layers must have heads=heads and concat=True
+    assert model.convs[0].heads == heads
+    assert model.convs[0].concat is True
+    assert model.convs[1].heads == heads
+    assert model.convs[1].concat is True
+    # Final layer must have heads=1 and concat=False
+    assert model.convs[2].heads == 1
+    assert model.convs[2].concat is False
+    assert model.readout.in_features == 12
+
+    model.eval()
+    with torch.no_grad():
+        out = model(x, edge_index)
+
+    assert out.shape == torch.Size([n_nodes])
 
 
 def test_gat_forward_shape():

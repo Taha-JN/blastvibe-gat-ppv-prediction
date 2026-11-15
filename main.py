@@ -1,11 +1,11 @@
 import argparse
-import os
-import sys
+from pathlib import Path
+from typing import Union
 import yaml
 import torch
 import numpy as np
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default=os.path.join(SCRIPT_DIR, "configs", "default_config.yaml"),
+        default=str(SCRIPT_DIR / "configs" / "default_config.yaml"),
         help="Path to YAML configuration file",
     )
     parser.add_argument(
@@ -42,10 +42,11 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_config(config_path: str) -> dict:
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
-    with open(config_path, "r", encoding="utf-8") as f:
+def load_config(config_path: Union[str, Path]) -> dict:
+    config_file = Path(config_path).resolve()
+    if not config_file.exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_file}")
+    with open(config_file, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     return config
 
@@ -54,18 +55,17 @@ def main():
     args = parse_args()
     config = load_config(args.config)
 
-    # Resolve dataset path
-    data_path = args.data_path or config.get("data", {}).get("raw_path", "data/data.csv")
-    if not os.path.isabs(data_path):
-        candidate = os.path.join(SCRIPT_DIR, data_path)
-        if not os.path.exists(candidate):
-            alt_candidate = os.path.join(SCRIPT_DIR, "data", os.path.basename(data_path))
-            if os.path.exists(alt_candidate):
-                data_path = alt_candidate
-            else:
-                data_path = candidate
-        else:
-            data_path = candidate
+    # Modernized path resolution using pathlib.Path
+    raw_path = Path(args.data_path or config.get("data", {}).get("raw_path", "data/data.csv"))
+    if raw_path.is_absolute():
+        data_path = raw_path
+    else:
+        candidate = (SCRIPT_DIR / raw_path).resolve()
+        alt_candidate = (SCRIPT_DIR / "data" / raw_path.name).resolve()
+        data_path = candidate if candidate.exists() else (alt_candidate if alt_candidate.exists() else candidate)
+
+    if not data_path.exists():
+        raise FileNotFoundError(f"Dataset file not found at: {data_path}")
 
     feature_cols = config.get("data", {}).get("feature_cols", ["DIS", "CHARGE", "SD"])
     target_col = config.get("data", {}).get("target_col", "SUM")
@@ -153,9 +153,8 @@ def main():
         )
 
         # 5. Production Inference Engine & Final Evaluation on 20% Unseen Test Set
-        best_model_path = config.get("artifacts", {}).get("best_model_file", "artifacts/models/best_gat_model.pt")
-        if not os.path.isabs(best_model_path):
-            best_model_path = os.path.join(SCRIPT_DIR, best_model_path)
+        model_file = Path(config.get("artifacts", {}).get("best_model_file", "artifacts/models/best_gat_model.pt"))
+        best_model_path = model_file if model_file.is_absolute() else (SCRIPT_DIR / model_file).resolve()
 
         logger.info("-" * 40)
         logger.info("SYMMETRICAL EVALUATION ON 20% UNSEEN HOLD-OUT TEST SET (40 SAMPLES)")

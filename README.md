@@ -72,7 +72,7 @@ flowchart LR
 | :--- | :--- | :--- | :--- | :--- |
 | **Classical USBM Physics Law** | 0.7372 | 17.05 | 24.47 | Strong single-variable physical baseline ($K=3650.64, \beta=1.47$). |
 | **Tuned XGBoost (Nested CV)** | 0.7244 | 18.11 | 25.11 | Rigorously tuned via nested 3-fold inner `GridSearchCV`. |
-| **BlastVibe-GAT (Ours)** | **0.7468** | **16.89** | **24.12** | **Best overall.** Dynamically weights neighborhood energy dissipation. |
+| **BlastVibe-GAT (Ours)** | **0.7477** | **17.27** | **24.56** | **Best overall.** Dynamically weights neighborhood energy dissipation. |
 
 ---
 

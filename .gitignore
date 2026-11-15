@@ -36,8 +36,12 @@ artifacts/plots/
 *.pth
 *.pkl
 *.joblib
-artifacts/models/
-artifacts/
+artifacts/*
+!artifacts/models/
+!artifacts/grid_search_results.csv
+artifacts/models/*
+!artifacts/models/best_gat_model.pt
+!artifacts/models/scaler_params.json
 
 # Testing & linting caches
 .pytest_cache/

@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from pathlib import Path
+from typing import List, Tuple, Optional, Union
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
@@ -8,6 +9,39 @@ from sklearn.preprocessing import StandardScaler
 from blastvibe.utils.logger import setup_logger
 
 logger = setup_logger("blastvibe.data.loader")
+
+
+def compute_scaled_distance(
+    dis: Union[float, int, np.ndarray, pd.Series],
+    charge: Union[float, int, np.ndarray, pd.Series],
+) -> Union[float, np.ndarray, pd.Series]:
+    """
+    Centralized physics calculation of USBM Scaled Distance:
+        SD = DIS / sqrt(CHARGE)
+    
+    Args:
+        dis: Distance from blast face in meters (must be >= 0).
+        charge: Maximum explosive charge per delay in kilograms (must be > 0).
+        
+    Returns:
+        Scaled Distance in m / kg^0.5.
+    """
+    if isinstance(dis, (int, float)) and isinstance(charge, (int, float)):
+        if charge <= 0:
+            raise ValueError(f"Detected non-positive CHARGE ({charge}); explosive charge must be strictly positive.")
+        if dis < 0:
+            raise ValueError(f"Detected negative DIS ({dis}); distance must be non-negative.")
+        return float(dis / np.sqrt(charge))
+
+    dis_arr = np.asarray(dis)
+    charge_arr = np.asarray(charge)
+
+    if np.any(charge_arr <= 0):
+        raise ValueError("Detected non-positive CHARGE values; explosive charge must be strictly positive.")
+    if np.any(dis_arr < 0):
+        raise ValueError("Detected negative DIS values; distance must be non-negative.")
+
+    return dis / np.sqrt(charge)
 
 
 @dataclass
@@ -25,7 +59,7 @@ class ProcessedFoldData:
 
 
 def load_raw_dataset(
-    file_path: str,
+    file_path: Union[str, Path],
     feature_cols: Optional[List[str]] = None,
     target_col: str = "SUM",
 ) -> pd.DataFrame:
@@ -33,29 +67,25 @@ def load_raw_dataset(
     Loads blast monitoring dataset, performs data validation, and engineers
     physics-informed Scaled Distance (SD = DIS / sqrt(CHARGE)).
     """
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Dataset file not found at: {file_path}")
+    path = Path(file_path).resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"Dataset file not found at: {path}")
 
-    if file_path.endswith(".csv"):
-        df = pd.read_csv(file_path)
-    elif file_path.endswith((".xlsx", ".xls")):
-        df = pd.read_excel(file_path)
+    if path.suffix == ".csv":
+        df = pd.read_csv(path)
+    elif path.suffix in [".xlsx", ".xls"]:
+        df = pd.read_excel(path)
     else:
-        raise ValueError(f"Unsupported file format for {file_path}. Use .csv or .xlsx")
+        raise ValueError(f"Unsupported file format for {path}. Use .csv or .xlsx")
 
     required = ["DIS", "CHARGE", target_col]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Dataset is missing required columns: {missing}. Present: {list(df.columns)}")
 
-    # Data hygiene & domain validation
-    if (df["CHARGE"] <= 0).any():
-        raise ValueError("Detected non-positive CHARGE values; cannot compute square root.")
-    if (df["DIS"] < 0).any():
-        raise ValueError("Detected negative DIS (distance) values.")
-
+    # Data hygiene & domain validation handled via centralized physics computation
     # Physics-based feature engineering (USBM Scaled Distance)
-    df["SD"] = df["DIS"] / np.sqrt(df["CHARGE"])
+    df["SD"] = compute_scaled_distance(df["DIS"], df["CHARGE"])
 
     if feature_cols is None:
         feature_cols = ["DIS", "CHARGE", "SD"]
@@ -66,7 +96,7 @@ def load_raw_dataset(
 
     clean_df = df[feature_cols + [target_col]].dropna().copy()
     logger.info(
-        f"Loaded and validated {len(clean_df)} records from {file_path}. "
+        f"Loaded and validated {len(clean_df)} records from {path}. "
         f"Features: {feature_cols}, Target: {target_col}"
     )
     return clean_df
