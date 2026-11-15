@@ -18,6 +18,8 @@ class ProcessedFoldData:
     y_val_scaled: np.ndarray
     y_train_raw: np.ndarray
     y_val_raw: np.ndarray
+    train_indices: np.ndarray
+    val_indices: np.ndarray
     scaler_x: StandardScaler
     scaler_y: StandardScaler
 
@@ -75,6 +77,8 @@ def prepare_fold_data(
     X_val_raw: np.ndarray,
     y_train_raw: np.ndarray,
     y_val_raw: np.ndarray,
+    train_indices: Optional[np.ndarray] = None,
+    val_indices: Optional[np.ndarray] = None,
 ) -> ProcessedFoldData:
     """
     Scales features and targets strictly using training statistics to prevent data leakage.
@@ -87,6 +91,11 @@ def prepare_fold_data(
     y_train_scaled = scaler_y.fit_transform(y_train_raw.reshape(-1, 1)).reshape(-1)
     y_val_scaled = scaler_y.transform(y_val_raw.reshape(-1, 1)).reshape(-1)
 
+    if train_indices is None:
+        train_indices = np.arange(len(X_train_raw), dtype=int)
+    if val_indices is None:
+        val_indices = np.arange(len(X_val_raw), dtype=int)
+
     return ProcessedFoldData(
         X_train_scaled=X_train_scaled,
         X_val_scaled=X_val_scaled,
@@ -94,6 +103,8 @@ def prepare_fold_data(
         y_val_scaled=y_val_scaled,
         y_train_raw=y_train_raw,
         y_val_raw=y_val_raw,
+        train_indices=train_indices,
+        val_indices=val_indices,
         scaler_x=scaler_x,
         scaler_y=scaler_y,
     )

@@ -15,13 +15,13 @@ class USBMRegressor:
     Classical USBM empirical attenuation regressor: PPV = K * (SD)^(-beta)
     Fitted via log-linear ordinary least squares.
     """
-    def __init__(self, sd_index: int = 2):
+    def __init__(self, sd_index: int = 2) -> None:
         self.sd_index = sd_index
         self.reg = LinearRegression()
-        self.K_val = None
-        self.beta_val = None
+        self.K_val: Optional[float] = None
+        self.beta_val: Optional[float] = None
 
-    def fit(self, X: np.ndarray, y: np.ndarray):
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "USBMRegressor":
         sd = X[:, self.sd_index]
         if (sd <= 0).any():
             raise ValueError("Scaled Distance (SD) must be strictly positive for USBM log transformation.")

@@ -171,5 +171,10 @@ def test_predictor_dataframe_schema_assertion(tmp_path):
         "EXPLOSIVE": [1000.0, 1500.0],
         "SCALED_DIST": [6.32, 7.75],
     })
-    with pytest.raises(AssertionError, match="Feature schema mismatch"):
+    with pytest.raises(ValueError, match="Feature schema mismatch"):
         predictor.predict(invalid_df)
+
+
+def test_predictor_cold_start_missing_checkpoint_raises_runtime_error():
+    with pytest.raises(RuntimeError, match="You must first run 'python main.py'"):
+        BlastVibePredictor("nonexistent_model_checkpoint.pt")

@@ -4,6 +4,7 @@ from typing import Union, List, Optional, Dict, Any
 import numpy as np
 import pandas as pd
 import torch
+from torch_geometric.utils import k_hop_subgraph
 
 from blastvibe.models.gat import GATRegressor
 from blastvibe.data.graph import build_inductive_graph
@@ -27,7 +28,10 @@ class BlastVibePredictor:
         device: str = "auto",
     ):
         if not os.path.exists(bundle_path):
-            raise FileNotFoundError(f"Model bundle not found at: {bundle_path}")
+            raise RuntimeError(
+                f"Model checkpoint not found at '{bundle_path}'. "
+                "You must first run 'python main.py' to execute training and generate the production checkpoint."
+            )
 
         if device == "auto":
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -37,7 +41,13 @@ class BlastVibePredictor:
         logger.info(f"Loading BlastVibe model bundle securely from: {bundle_path} to device: {self.device}")
         
         # CWE-502 Remediated: Secure weights_only=True loading prevents arbitrary code execution
-        checkpoint = torch.load(bundle_path, map_location=self.device, weights_only=True)
+        try:
+            checkpoint = torch.load(bundle_path, map_location=self.device, weights_only=True)
+        except FileNotFoundError as err:
+            raise RuntimeError(
+                f"Model checkpoint not found at '{bundle_path}'. "
+                "You must first run 'python main.py' to execute training and generate the production checkpoint."
+            ) from err
 
         # Validate required bundle components
         required_keys = [
@@ -123,9 +133,10 @@ class BlastVibePredictor:
         if isinstance(raw_features, (list, tuple)):
             features = np.asarray(raw_features, dtype=np.float32)
         elif isinstance(raw_features, pd.DataFrame):
-            assert list(raw_features.columns) == self.feature_names, (
-                f"Feature schema mismatch! Expected columns {self.feature_names}, got {list(raw_features.columns)}"
-            )
+            if list(raw_features.columns) != self.feature_names:
+                raise ValueError(
+                    f"Feature schema mismatch! Expected columns {self.feature_names}, got {list(raw_features.columns)}"
+                )
             features = raw_features[self.feature_names].values.astype(np.float32)
         elif isinstance(raw_features, np.ndarray):
             features = raw_features.astype(np.float32)
@@ -154,9 +165,24 @@ class BlastVibePredictor:
                 k=self.k_neighbors,
             )
 
-            # Forward pass through multi-head GAT
-            out = self.model(x_combined, eval_edge_index)
-            pred_scaled = out[query_mask].cpu().numpy().reshape(-1)
+            # Localize inference graph via 2-hop subgraph extraction around query nodes
+            # Eliminates O(N_train) forward-pass memory and compute scaling
+            n_train = self.x_train_ref.size(0)
+            n_query = x_query.size(0)
+            query_node_indices = torch.arange(n_train, n_train + n_query, device=self.device)
+
+            subset, sub_edge_index, mapping, _ = k_hop_subgraph(
+                node_idx=query_node_indices,
+                num_hops=2,
+                edge_index=eval_edge_index,
+                relabel_nodes=True,
+                flow="source_to_target",
+            )
+            sub_x = x_combined[subset]
+
+            # Forward pass through multi-head GAT strictly on localized 2-hop neighborhood
+            out = self.model(sub_x, sub_edge_index)
+            pred_scaled = out[mapping].cpu().numpy().reshape(-1)
 
             # Inverse transform back to physical engineering units (mm/s) purely mathematically
             pred_raw = (pred_scaled * self.y_scale) + self.y_mean

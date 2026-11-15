@@ -156,10 +156,10 @@ def build_cv_folds(
     y: np.ndarray,
     n_splits: int = 5,
     shuffle: bool = True,
-    seed: int = 42,
+    seed: Optional[int] = 42,
 ) -> List[ProcessedFoldData]:
     """Prepares and scales all K-Fold cross-validation splits."""
-    kf = KFold(n_splits=n_splits, shuffle=shuffle, random_state=seed)
+    kf = KFold(n_splits=n_splits, shuffle=shuffle, random_state=seed if shuffle else None)
     folds_data: List[ProcessedFoldData] = []
     for train_idx, val_idx in kf.split(X):
         fold_data = prepare_fold_data(
@@ -167,6 +167,8 @@ def build_cv_folds(
             X_val_raw=X[val_idx],
             y_train_raw=y[train_idx],
             y_val_raw=y[val_idx],
+            train_indices=train_idx,
+            val_indices=val_idx,
         )
         folds_data.append(fold_data)
     return folds_data
@@ -240,7 +242,6 @@ def evaluate_hyperparameter_grid(
 
         for fold_idx, fold_data in enumerate(folds_data):
             cached_topo = topology_cache.get(k=k_val, fold_idx=fold_idx)
-            val_indices = np.where(~np.isin(np.arange(total_samples), fold_data.X_train_scaled))[0]
 
             metrics, fold_preds, _ = train_single_fold(
                 fold_idx=fold_idx,
@@ -256,13 +257,14 @@ def evaluate_hyperparameter_grid(
                 eval_interval=eval_interval,
                 device=device,
             )
+            oof_preds[fold_data.val_indices] = fold_preds
             fold_metrics_list.append(metrics)
 
         mean_r2 = float(np.mean([m["r2"] for m in fold_metrics_list]))
         mean_mae = float(np.mean([m["mae"] for m in fold_metrics_list]))
         mean_mse = float(np.mean([m["mse"] for m in fold_metrics_list]))
         mean_rmse = float(np.mean([m["rmse"] for m in fold_metrics_list]))
-        fold_best_epochs = [m.get("best_epoch", epochs) for m in fold_metrics_list]
+        fold_best_epochs = [int(m.get("best_epoch", epochs)) for m in fold_metrics_list]
 
         record = {
             "k_neighbors": k_val,
@@ -287,7 +289,7 @@ def evaluate_hyperparameter_grid(
         if mean_mae < best_mae:
             best_mae = mean_mae
             best_combo = record
-            best_oof_preds = oof_preds
+            best_oof_preds = oof_preds.copy()
             best_fold_epochs = fold_best_epochs
 
     results_df = pd.DataFrame(results_table)
@@ -420,7 +422,7 @@ def run_cross_validation_grid_search(
     y: np.ndarray,
     config: Dict[str, Any],
     device: torch.device,
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+) -> Tuple[pd.DataFrame, Optional[Dict[str, Any]]]:
     """
     Coordinates K-Fold Cross-Validation across a hyperparameter grid using topology caching,
     saves the results log, and serializes the optimal production model bundle to disk.

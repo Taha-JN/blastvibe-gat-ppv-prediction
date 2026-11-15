@@ -5,11 +5,7 @@ import yaml
 import torch
 import numpy as np
 
-# Ensure src is on sys.path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC_DIR = os.path.join(SCRIPT_DIR, "src")
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
@@ -99,12 +95,13 @@ def main():
 
     # 3. Benchmark Baseline Evaluations on 80% Train Set (USBM Physics & Tuned XGBoost)
     usbm_model = None
+    usbm_oof = None
     xgb_model = None
     if not args.skip_baseline:
         logger.info("-" * 40)
         logger.info("Running Empirical Physics Baseline: USBM Attenuation Law (on 80% Train)")
         logger.info("-" * 40)
-        usbm_metrics, _, usbm_model = run_usbm_baseline(
+        usbm_metrics, usbm_oof, usbm_model = run_usbm_baseline(
             X=X_train,
             y=y_train,
             sd_index=feature_cols.index("SD") if "SD" in feature_cols else 2,
@@ -206,6 +203,53 @@ def main():
             f"Single Shot Inference Test -> [DIS={sample_dis}m, CHARGE={sample_charge}kg] | "
             f"Predicted PPV: {sample_pred:.2f} mm/s"
         )
+
+        # 6. Statistical Rigor: Wilcoxon Signed-Rank Hypothesis Testing
+        if usbm_model is not None:
+            from scipy.stats import wilcoxon
+
+            logger.info("-" * 40)
+            logger.info("STATISTICAL RIGOR: Wilcoxon Signed-Rank Hypothesis Testing")
+            logger.info("-" * 40)
+
+            # Test A: Out-of-Fold Cross-Validation Errors
+            if usbm_oof is not None and best_bundle.get("oof_predictions") is not None:
+                oof_errors_gat = np.abs(y_train - best_bundle["oof_predictions"])
+                oof_errors_usbm = np.abs(y_train - usbm_oof)
+                stat_oof, p_val_oof = wilcoxon(oof_errors_gat, oof_errors_usbm)
+                logger.info(
+                    f"Out-of-Fold Absolute Error Comparison (N={len(y_train)}) -> "
+                    f"Wilcoxon stat: {stat_oof:.2f}, p-value: {p_val_oof:.4e}"
+                )
+                if p_val_oof >= 0.05:
+                    logger.warning(
+                        f"Out-of-Fold performance difference between GAT and USBM is NOT statistically significant "
+                        f"(p = {p_val_oof:.4f} >= 0.05)."
+                    )
+                else:
+                    logger.info(
+                        f"Out-of-Fold performance difference between GAT and USBM IS statistically significant "
+                        f"(p = {p_val_oof:.4f} < 0.05)."
+                    )
+
+            # Test B: Hold-out Test Set Absolute Errors
+            test_errors_gat = np.abs(y_test - y_test_pred)
+            test_errors_usbm = np.abs(y_test - y_test_pred_usbm)
+            stat_test, p_val_test = wilcoxon(test_errors_gat, test_errors_usbm)
+            logger.info(
+                f"Hold-out Test Absolute Error Comparison (N={len(y_test)}) -> "
+                f"Wilcoxon stat: {stat_test:.2f}, p-value: {p_val_test:.4e}"
+            )
+            if p_val_test >= 0.05:
+                logger.warning(
+                    f"Hold-out test performance difference between GAT and USBM is NOT statistically significant "
+                    f"(p = {p_val_test:.4f} >= 0.05)."
+                )
+            else:
+                logger.info(
+                    f"Hold-out test performance difference between GAT and USBM IS statistically significant "
+                    f"(p = {p_val_test:.4f} < 0.05)."
+                )
 
     logger.info("=" * 60)
 
