@@ -3,7 +3,6 @@ import json
 from typing import Union, List, Optional, Dict, Any
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 import torch
 
 from blastvibe.models.gat import GATRegressor
@@ -19,7 +18,7 @@ class BlastVibePredictor:
     
     Loads a serialized checkpoint bundle containing model weights, hyperparameters,
     and reference graph topology using secure weights_only=True deserialization (CWE-502 compliant),
-    with decoupled StandardScaler parameters loaded from JSON.
+    with decoupled feature normalization parameters loaded from JSON.
     """
     def __init__(
         self,
@@ -55,8 +54,15 @@ class BlastVibePredictor:
             )
 
         self.hyperparameters = checkpoint["hyperparameters"]
+        self.feature_names = list(checkpoint.get("feature_names", ["DIS", "CHARGE", "SD"]))
+        self.target_name = str(checkpoint.get("target_name", "SUM"))
 
-        # Reconstruct decoupled StandardScaler instances from JSON
+        # Reference training topology for inductive message passing
+        self.x_train_ref = checkpoint["x_train_ref"].to(device=self.device, dtype=torch.float32)
+        self.train_edge_index = checkpoint["train_edge_index"].to(device=self.device, dtype=torch.long)
+        self.k_neighbors = int(self.hyperparameters.get("k_neighbors", 8))
+
+        # Load decoupled feature normalization parameters from JSON
         if scaler_params_path is None:
             scaler_params_path = os.path.join(os.path.dirname(bundle_path), "scaler_params.json")
 
@@ -69,22 +75,22 @@ class BlastVibePredictor:
         with open(scaler_params_path, "r", encoding="utf-8") as f:
             scaler_dict = json.load(f)
 
-        self.scaler_x = self._reconstruct_scaler(scaler_dict["scaler_x"])
-        self.scaler_y = self._reconstruct_scaler(scaler_dict["scaler_y"])
-
-        # Reference training topology for inductive message passing
-        self.x_train_ref = checkpoint["x_train_ref"].to(device=self.device, dtype=torch.float32)
-        self.train_edge_index = checkpoint["train_edge_index"].to(device=self.device, dtype=torch.long)
-        self.k_neighbors = int(self.hyperparameters.get("k_neighbors", 8))
+        self.x_mean = np.array(scaler_dict["scaler_x"]["mean"], dtype=np.float32)
+        self.x_scale = np.array(scaler_dict["scaler_x"]["scale"], dtype=np.float32)
+        self.y_mean = float(scaler_dict["scaler_y"]["mean"][0])
+        self.y_scale = float(scaler_dict["scaler_y"]["scale"][0])
 
         # Instantiate model architecture
+        ref_samples_count = self.x_train_ref.size(0)
         in_dim = self.x_train_ref.size(1)
         hidden_dim = int(self.hyperparameters.get("hidden_dim", 64))
+        out_hidden_dim = self.hyperparameters.get("out_hidden_dim", None)
         heads = int(self.hyperparameters.get("heads", 4))
 
         self.model = GATRegressor(
             in_dim=in_dim,
             hidden_dim=hidden_dim,
+            out_hidden_dim=out_hidden_dim,
             heads=heads,
             dropout=0.0,  # Zero dropout for deterministic production inference
         ).to(self.device)
@@ -93,26 +99,19 @@ class BlastVibePredictor:
         self.model.eval()
         logger.info(
             f"Successfully initialized BlastVibePredictor (k={self.k_neighbors}, "
-            f"hidden_dim={hidden_dim}, heads={heads}, ref_nodes={self.x_train_ref.size(0)})"
+            f"hidden_dim={hidden_dim}, heads={heads}, ref_nodes={ref_samples_count})"
         )
-
-    @staticmethod
-    def _reconstruct_scaler(params: Dict[str, Any]) -> StandardScaler:
-        """Dynamically reconstructs a fitted StandardScaler from pure JSON primitives."""
-        scaler = StandardScaler()
-        scaler.mean_ = np.array(params["mean"], dtype=np.float64)
-        scaler.scale_ = np.array(params["scale"], dtype=np.float64)
-        if "var" in params and params["var"] is not None:
-            scaler.var_ = np.array(params["var"], dtype=np.float64)
-        else:
-            scaler.var_ = scaler.scale_ ** 2
-        scaler.n_features_in_ = len(scaler.mean_)
-        scaler.n_samples_seen_ = 100
-        return scaler
 
     def predict(self, raw_features: Union[np.ndarray, pd.DataFrame, List]) -> np.ndarray:
         """
         Executes inductive GNN inference on raw input features.
+        
+        Production Scaling Note:
+        For massive reference datasets (e.g. N > 50,000), performing message passing over the entire
+        historical graph creates an O(N) serving bottleneck. In high-throughput production environments,
+        real-time inference should utilize a parametric student surrogate model (e.g., distilled MLP or
+        calibrated gradient booster) or a localized KD-tree prototype cache that restricts message
+        passing to the top-k nearest historical neighbors instead of the entire reference topology.
         
         Args:
             raw_features: Features corresponding to [DIS, CHARGE, SD].
@@ -124,7 +123,10 @@ class BlastVibePredictor:
         if isinstance(raw_features, (list, tuple)):
             features = np.asarray(raw_features, dtype=np.float32)
         elif isinstance(raw_features, pd.DataFrame):
-            features = raw_features.values.astype(np.float32)
+            assert list(raw_features.columns) == self.feature_names, (
+                f"Feature schema mismatch! Expected columns {self.feature_names}, got {list(raw_features.columns)}"
+            )
+            features = raw_features[self.feature_names].values.astype(np.float32)
         elif isinstance(raw_features, np.ndarray):
             features = raw_features.astype(np.float32)
         else:
@@ -139,8 +141,8 @@ class BlastVibePredictor:
                 f"Expected features shape [N, {self.x_train_ref.size(1)}], got {features.shape}"
             )
 
-        # Scale features strictly using reference training statistics
-        scaled_features = self.scaler_x.transform(features)
+        # Scale features strictly using reference training statistics (vectorized)
+        scaled_features = (features - self.x_mean) / self.x_scale
         x_query = torch.tensor(scaled_features, dtype=torch.float32, device=self.device)
 
         # Inductively connect query nodes to training reference graph
@@ -154,10 +156,11 @@ class BlastVibePredictor:
 
             # Forward pass through multi-head GAT
             out = self.model(x_combined, eval_edge_index)
-            pred_scaled = out[query_mask].cpu().numpy().reshape(-1, 1)
+            pred_scaled = out[query_mask].cpu().numpy().reshape(-1)
 
-            # Inverse transform back to physical engineering units (mm/s)
-            pred_raw = self.scaler_y.inverse_transform(pred_scaled).reshape(-1)
+            # Inverse transform back to physical engineering units (mm/s) purely mathematically
+            pred_raw = (pred_scaled * self.y_scale) + self.y_mean
+            pred_raw = np.maximum(0.0, pred_raw)
 
         return pred_raw
 

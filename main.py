@@ -11,6 +11,8 @@ SRC_DIR = os.path.join(SCRIPT_DIR, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 from blastvibe.data.loader import load_raw_dataset
 from blastvibe.models.baseline import run_xgboost_baseline, run_usbm_baseline
 from blastvibe.models.predictor import BlastVibePredictor
@@ -81,30 +83,48 @@ def main():
     X = df[feature_cols].values.astype(np.float32)
     y = df[target_col].values.astype(np.float32)
 
-    # 2. Benchmark Baseline Evaluations (USBM Physics & Tuned XGBoost)
+    # 2. Strict 80/20 Train-Test Split (Isolated Hold-out Test Set)
+    # The 20% test partition is strictly isolated BEFORE any CV, tuning, or fitting
+    cv_cfg = config.get("cv", {})
+    random_state = cv_cfg.get("random_state", 42)
+    shuffle = cv_cfg.get("shuffle", True)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.20, random_state=random_state, shuffle=shuffle
+    )
+    logger.info(
+        f"Data Partitioning -> 80% Training Set ({len(X_train)} samples) | "
+        f"20% Unseen Hold-out Test Set ({len(X_test)} samples)"
+    )
+
+    # 3. Benchmark Baseline Evaluations on 80% Train Set (USBM Physics & Tuned XGBoost)
+    usbm_model = None
+    xgb_model = None
     if not args.skip_baseline:
         logger.info("-" * 40)
-        logger.info("Running Empirical Physics Baseline: USBM Attenuation Law")
+        logger.info("Running Empirical Physics Baseline: USBM Attenuation Law (on 80% Train)")
         logger.info("-" * 40)
-        usbm_metrics, _ = run_usbm_baseline(
-            X=X,
-            y=y,
+        usbm_metrics, _, usbm_model = run_usbm_baseline(
+            X=X_train,
+            y=y_train,
             sd_index=feature_cols.index("SD") if "SD" in feature_cols else 2,
             n_splits=config.get("cv", {}).get("n_splits", 5),
-            random_state=config.get("cv", {}).get("random_state", 42),
+            random_state=random_state,
+            return_model=True,
         )
 
         logger.info("-" * 40)
-        logger.info("Running Equitable Industrial Baseline: Tuned XGBoost (GridSearchCV)")
+        logger.info("Running Equitable Industrial Baseline: Tuned XGBoost (on 80% Train)")
         logger.info("-" * 40)
-        baseline_metrics, _ = run_xgboost_baseline(
-            X=X,
-            y=y,
+        baseline_metrics, _, xgb_model = run_xgboost_baseline(
+            X=X_train,
+            y=y_train,
             n_splits=config.get("cv", {}).get("n_splits", 5),
-            random_state=config.get("cv", {}).get("random_state", 42),
+            random_state=random_state,
+            return_model=True,
         )
 
-    # 3. GAT Model Cross-Validation & Grid Search
+    # 4. GAT Model Cross-Validation & Grid Search strictly on 80% Train Set
     device_setting = config.get("training", {}).get("device", "auto")
     if device_setting == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -113,42 +133,77 @@ def main():
     logger.info(f"Using Compute Device: {device}")
 
     logger.info("-" * 40)
-    logger.info("Running Leak-Free Inductive GAT Cross-Validation & Tuning")
+    logger.info("Running Leak-Free Inductive GAT Cross-Validation & Tuning (on 80% Train)")
     logger.info("-" * 40)
 
     results_df, best_bundle = run_cross_validation_grid_search(
-        X=X,
-        y=y,
+        X=X_train,
+        y=y_train,
         config=config,
         device=device,
     )
 
     logger.info("=" * 60)
-    logger.info("Pipeline Execution Complete!")
+    logger.info("Cross-Validation & Model Training Complete!")
     if best_bundle:
         best_cfg = best_bundle["config"]
         logger.info(f"Optimal Hyperparameters: {best_cfg}")
         logger.info(
-            f"Best GAT Validation Performance -> "
+            f"GAT 5-Fold CV Validation Performance (Train Set Only) -> "
             f"R2: {best_cfg['mean_r2']:.4f} | "
             f"MAE: {best_cfg['mean_mae']:.4f} | "
             f"RMSE: {best_cfg['mean_rmse']:.4f}"
         )
 
-        # 4. Production Inference Engine Verification
+        # 5. Production Inference Engine & Final Evaluation on 20% Unseen Test Set
         best_model_path = config.get("artifacts", {}).get("best_model_file", "artifacts/models/best_gat_model.pt")
         if not os.path.isabs(best_model_path):
             best_model_path = os.path.join(SCRIPT_DIR, best_model_path)
 
         logger.info("-" * 40)
-        logger.info("Verifying Standalone Production Inference Service (BlastVibePredictor)")
+        logger.info("SYMMETRICAL EVALUATION ON 20% UNSEEN HOLD-OUT TEST SET (40 SAMPLES)")
         logger.info("-" * 40)
+
+        # Baseline 1: USBM Physics Law on Hold-out Test Set
+        if usbm_model is not None:
+            y_test_pred_usbm = usbm_model.predict(X_test)
+            test_r2_usbm = float(r2_score(y_test, y_test_pred_usbm))
+            test_mae_usbm = float(mean_absolute_error(y_test, y_test_pred_usbm))
+            test_rmse_usbm = float(np.sqrt(mean_squared_error(y_test, y_test_pred_usbm)))
+            logger.info(
+                f"Hold-out Test Set (Classical USBM) -> "
+                f"R2: {test_r2_usbm:.4f} | MAE: {test_mae_usbm:.4f} mm/s | RMSE: {test_rmse_usbm:.4f} mm/s"
+            )
+
+        # Baseline 2: Tuned XGBoost Regressor on Hold-out Test Set
+        if xgb_model is not None:
+            y_test_pred_xgb = xgb_model.predict(X_test)
+            test_r2_xgb = float(r2_score(y_test, y_test_pred_xgb))
+            test_mae_xgb = float(mean_absolute_error(y_test, y_test_pred_xgb))
+            test_rmse_xgb = float(np.sqrt(mean_squared_error(y_test, y_test_pred_xgb)))
+            logger.info(
+                f"Hold-out Test Set (Tuned XGBoost) -> "
+                f"R2: {test_r2_xgb:.4f} | MAE: {test_mae_xgb:.4f} mm/s | RMSE: {test_rmse_xgb:.4f} mm/s"
+            )
+
+        # Proposed: BlastVibe-GAT on Hold-out Test Set
         predictor = BlastVibePredictor(bundle_path=best_model_path, device="cpu")
+        y_test_pred = predictor.predict(X_test)
+        test_r2 = float(r2_score(y_test, y_test_pred))
+        test_mae = float(mean_absolute_error(y_test, y_test_pred))
+        test_mse = float(mean_squared_error(y_test, y_test_pred))
+        test_rmse = float(np.sqrt(test_mse))
+
+        logger.info(
+            f"Hold-out Test Set (BlastVibe-GAT)  -> "
+            f"R2: {test_r2:.4f} | MAE: {test_mae:.4f} mm/s | RMSE: {test_rmse:.4f} mm/s"
+        )
+
         sample_dis = 400.0
         sample_charge = 1850.0
         sample_pred = predictor.predict_single(dis=sample_dis, charge=sample_charge)
         logger.info(
-            f"Inference Test -> Input: [DIS={sample_dis}m, CHARGE={sample_charge}kg] | "
+            f"Single Shot Inference Test -> [DIS={sample_dis}m, CHARGE={sample_charge}kg] | "
             f"Predicted PPV: {sample_pred:.2f} mm/s"
         )
 

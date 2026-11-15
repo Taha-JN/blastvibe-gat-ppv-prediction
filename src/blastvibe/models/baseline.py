@@ -1,4 +1,4 @@
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, Union
 import numpy as np
 from sklearn.model_selection import KFold, GridSearchCV
 from sklearn.linear_model import LinearRegression
@@ -10,13 +10,45 @@ from blastvibe.utils.logger import setup_logger
 logger = setup_logger("blastvibe.models.baseline")
 
 
+class USBMRegressor:
+    """
+    Classical USBM empirical attenuation regressor: PPV = K * (SD)^(-beta)
+    Fitted via log-linear ordinary least squares.
+    """
+    def __init__(self, sd_index: int = 2):
+        self.sd_index = sd_index
+        self.reg = LinearRegression()
+        self.K_val = None
+        self.beta_val = None
+
+    def fit(self, X: np.ndarray, y: np.ndarray):
+        sd = X[:, self.sd_index]
+        if (sd <= 0).any():
+            raise ValueError("Scaled Distance (SD) must be strictly positive for USBM log transformation.")
+        if (y <= 0).any():
+            raise ValueError("Target PPV must be strictly positive for USBM log transformation.")
+        log_sd = np.log(sd).reshape(-1, 1)
+        log_y = np.log(y)
+        self.reg.fit(log_sd, log_y)
+        self.K_val = float(np.exp(self.reg.intercept_))
+        self.beta_val = float(-self.reg.coef_[0])
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        sd = X[:, self.sd_index]
+        log_sd = np.log(sd).reshape(-1, 1)
+        preds = np.exp(self.reg.predict(log_sd))
+        return np.maximum(0.0, preds)
+
+
 def run_usbm_baseline(
     X: np.ndarray,
     y: np.ndarray,
     sd_index: int = 2,
     n_splits: int = 5,
     random_state: int = 42,
-) -> Tuple[Dict[str, float], np.ndarray]:
+    return_model: bool = False,
+) -> Union[Tuple[Dict[str, float], np.ndarray], Tuple[Dict[str, float], np.ndarray, USBMRegressor]]:
     """
     Evaluates the classical USBM (United States Bureau of Mines) empirical blast
     attenuation formulation:
@@ -93,6 +125,10 @@ def run_usbm_baseline(
         f"RMSE: {metrics['rmse']:.4f} | [Fitted K={metrics['fitted_K']:.2f}, beta={metrics['fitted_beta']:.2f}]"
     )
 
+    if return_model:
+        final_model = USBMRegressor(sd_index=sd_index).fit(X, y)
+        return metrics, oof_predictions, final_model
+
     return metrics, oof_predictions
 
 
@@ -103,7 +139,8 @@ def run_xgboost_baseline(
     random_state: int = 42,
     param_grid: Optional[Dict[str, Any]] = None,
     inner_cv_splits: int = 3,
-) -> Tuple[Dict[str, float], np.ndarray]:
+    return_model: bool = False,
+) -> Union[Tuple[Dict[str, float], np.ndarray], Tuple[Dict[str, float], np.ndarray, xgb.XGBRegressor]]:
     """
     Evaluates an equitable industrial baseline XGBoost Regressor using nested
     cross-validation (GridSearchCV within outer K-Fold).
@@ -180,5 +217,21 @@ def run_xgboost_baseline(
         f"R2: {metrics['r2']:.4f} | MAE: {metrics['mae']:.4f} | "
         f"MSE: {metrics['mse']:.4f} | RMSE: {metrics['rmse']:.4f}"
     )
+
+    if return_model:
+        logger.info("Fitting production Tuned XGBoost on 100% of training data...")
+        prod_grid_search = GridSearchCV(
+            estimator=xgb.XGBRegressor(
+                random_state=random_state,
+                verbosity=0,
+                n_jobs=1,
+            ),
+            param_grid=param_grid,
+            cv=inner_cv_splits,
+            scoring="neg_mean_absolute_error",
+            n_jobs=-1,
+        )
+        prod_grid_search.fit(X, y)
+        return metrics, oof_predictions, prod_grid_search.best_estimator_
 
     return metrics, oof_predictions

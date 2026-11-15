@@ -1,3 +1,4 @@
+from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,6 +16,7 @@ class GATRegressor(nn.Module):
         self,
         in_dim: int = 3,
         hidden_dim: int = 64,
+        out_hidden_dim: Optional[int] = None,
         heads: int = 4,
         dropout: float = 0.2,
     ):
@@ -24,7 +26,8 @@ class GATRegressor(nn.Module):
         self.heads = heads
         self.dropout_rate = dropout
 
-        out_hidden = max(hidden_dim // 2, 16)
+        out_hidden = out_hidden_dim if out_hidden_dim is not None else (hidden_dim // 2)
+        self.out_hidden_dim = out_hidden
 
         # Layer 1: Multi-head graph attention
         self.gat1 = GATConv(

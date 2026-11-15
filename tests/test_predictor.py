@@ -79,11 +79,13 @@ def test_predictor_mock_roundtrip(tmp_path):
     assert isinstance(preds, np.ndarray), "Predictions must be a numpy ndarray"
     assert preds.shape == (2,), f"Expected shape (2,), got {preds.shape}"
     assert np.all(np.isfinite(preds)), "Predictions must be finite (no NaNs or Infs)"
+    assert np.all(preds >= 0.0), "Predictions must be non-negative (PPV >= 0)"
 
     # 2. Test single-shot prediction
     single_pred = predictor.predict_single(dis=250.0, charge=75.0)
     assert isinstance(single_pred, float), "predict_single must return a float"
     assert np.isfinite(single_pred), "predict_single output must be finite"
+    assert single_pred >= 0.0, "predict_single output must be non-negative"
 
 
 def test_predictor_missing_keys_fails(tmp_path):
@@ -125,3 +127,49 @@ def test_predictor_invalid_feature_dimension(tmp_path):
     invalid_batch = np.array([[10.0, 20.0, 30.0, 40.0]])
     with pytest.raises(ValueError):
         predictor.predict(invalid_batch)
+
+
+def test_predictor_dataframe_schema_assertion(tmp_path):
+    import pandas as pd
+    torch.manual_seed(42)
+    x_train_ref = torch.randn(15, 3)
+    train_edge_index = build_train_knn_graph(x_train_ref, k=3, loop=False)
+    model = GATRegressor(in_dim=3, hidden_dim=8, heads=1, dropout=0.0)
+
+    scaler_x = StandardScaler().fit(x_train_ref.numpy())
+    scaler_y = StandardScaler().fit(np.arange(15).reshape(-1, 1))
+    _save_mock_scaler_params(tmp_path, scaler_x, scaler_y)
+
+    bundle_path = tmp_path / "bundle.pt"
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "hyperparameters": {"k_neighbors": 3, "hidden_dim": 8, "heads": 1},
+            "feature_names": ["DIS", "CHARGE", "SD"],
+            "target_name": "SUM",
+            "x_train_ref": x_train_ref,
+            "train_edge_index": train_edge_index,
+        },
+        str(bundle_path),
+    )
+
+    predictor = BlastVibePredictor(str(bundle_path), device="cpu")
+
+    # Valid DataFrame matching schema
+    valid_df = pd.DataFrame({
+        "DIS": [200.0, 300.0],
+        "CHARGE": [1000.0, 1500.0],
+        "SD": [6.32, 7.75],
+    })
+    preds = predictor.predict(valid_df)
+    assert len(preds) == 2
+    assert np.all(preds >= 0.0)
+
+    # Invalid DataFrame with mismatched column schema
+    invalid_df = pd.DataFrame({
+        "DISTANCE": [200.0, 300.0],
+        "EXPLOSIVE": [1000.0, 1500.0],
+        "SCALED_DIST": [6.32, 7.75],
+    })
+    with pytest.raises(AssertionError, match="Feature schema mismatch"):
+        predictor.predict(invalid_df)

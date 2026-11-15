@@ -9,7 +9,7 @@ $$PPV = K \cdot (SD)^{-\beta}$$
 where $SD$ is the **Scaled Distance**:
 $$SD = \frac{Distance}{\sqrt{Charge}}$$
 
-This project establishes a **Scientific Machine Learning (SciML)** framework combining physics-based feature formulation with **Graph Attention Networks (GAT)** to model vibration propagation across spatial monitoring topologies under a mathematically rigorous, **leak-free inductive evaluation paradigm**.
+This project establishes a **Scientific Machine Learning (SciML)** framework combining physics-based feature formulation with **Graph Attention Networks (GAT)** to conduct **tabular inference using KNN feature-space graphs** under a mathematically rigorous, **leak-free inductive evaluation paradigm**.
 
 ---
 
@@ -17,16 +17,18 @@ This project establishes a **Scientific Machine Learning (SciML)** framework com
 
 To elevate this project to senior production standards, the machine learning methodology enforces the following structural invariants:
 
-1. **Inductive KNN Graph Construction**:
+1. **Strict 80/20 Partitioning Protocol**:
+   - The model is evaluated using a strict 80/20 data split. The inductive graph trains on 160 reference nodes (80% of the 200 total records) and is independently benchmarked on a completely unseen hold-out test set of 40 nodes.
+2. **Inductive KNN Graph Construction**:
    - The reference graph topology is constructed strictly on the training partition ($X_{train}$) using $k$-Nearest Neighbors.
-   - For out-of-sample evaluation ($X_{val}$), query nodes are connected via directed edges strictly from their nearest neighbors in $X_{train}$.
-   - **Zero Backward Flow**: No edges exist pointing from validation nodes into training nodes, and no edges connect validation nodes to each other. Message passing preserves total train independence.
-2. **Deduplicated Graph Edges**:
-   - Eliminates legacy nested loop bugs that introduced duplicate bidirectional edges. Uses PyTorch Geometric native KNN construction with vectorized PyTorch fallback.
-3. **Out-of-Fold Validation Checkpointing**:
-   - Optimal checkpoints are selected based strictly on validation MAE on held-out folds, preventing training set memorization.
-4. **Empirical Benchmarking**:
-   - Directly compared against an industry-standard Gradient Boosted Decision Tree (`xgboost.XGBRegressor`) evaluated on the identical cross-validation splits.
+   - For out-of-sample evaluation ($X_{val}$ / $X_{test}$), query nodes are connected via directed edges strictly from their nearest neighbors in $X_{train}$.
+   - **Zero Backward Flow**: No edges exist pointing from validation/test nodes into training nodes, and no edges connect query nodes to each other. Message passing preserves total train independence.
+3. **Deduplicated Graph Edges & Zero-Dependency Fallback**:
+   - Eliminates legacy nested loop bugs that introduced duplicate bidirectional edges. Pure PyTorch GPU-accelerated spatial indexing using `torch.cdist` and `knn_graph` ensures compatibility on systems without compiled C++ `pyg-lib` binaries.
+4. **CV-Optimal Deterministic Production Checkpointing**:
+   - Optimal checkpoints are selected based strictly on validation error across cross-validation folds. The mean optimal epoch is then applied deterministically to train the production model on 100% of the training partition, eliminating pseudo early-stopping.
+5. **Empirical Benchmarking**:
+   - Directly compared against an industry-standard Gradient Boosted Decision Tree (`xgboost.XGBRegressor`) evaluated on identical cross-validation splits.
 
 ---
 
@@ -40,7 +42,7 @@ To elevate this project to senior production standards, the machine learning met
 | **Root Mean Squared Error (RMSE)** | 24.47 mm/s | 25.11 mm/s | **24.12 mm/s** | **-3.9% (Better)** |
 
 ### Scientific Finding:
-Under equitable nested cross-validation, the Graph Attention Network outperforms both the classical USBM empirical attenuation law and tuned gradient-boosted decision trees. While tree models partition continuous tabular space orthogonally, the multi-head graph attention mechanism dynamically models local neighborhood attenuation gradients along continuous wave propagation surfaces.
+Under equitable nested cross-validation, the Graph Attention Network outperforms both the classical USBM empirical attenuation law and tuned gradient-boosted decision trees. While tree models partition continuous tabular space orthogonally, the multi-head graph attention mechanism dynamically weights neighborhood feature similarities in tabular feature-space graphs.
 
 ---
 
@@ -54,4 +56,4 @@ Under equitable nested cross-validation, the Graph Attention Network outperforms
 - **Weight Decay ($L_2$)**: 0.0001
 - **Readout**: Linear projection to scalar prediction
 
-Full hyperparameter combinations and metrics are logged in `artifacts/grid_search_results.csv`. The top-performing model weights, scalers, reference training topology (200 nodes, 800 edges), and configuration are persisted in `artifacts/models/best_gat_model.pt` for standalone production serving via `BlastVibePredictor`.
+Full hyperparameter combinations and metrics are logged in `artifacts/grid_search_results.csv`. The top-performing model weights, scalers, reference training topology (160 nodes, 640 edges), and configuration are persisted in `artifacts/models/best_gat_model.pt` for standalone production serving via `BlastVibePredictor`.

@@ -11,9 +11,11 @@
 
 ## 📖 Executive Summary
 
-**BlastVibe-GNN** is a production-grade Machine Learning pipeline engineered to predict blast-induced ground vibration (Peak Particle Velocity - PPV) using **Graph Attention Networks (GAT)**. Combining domain-specific blast mechanics (USBM Scaled Distance) with geometric deep learning, the architecture models spatial energy dissipation across monitoring networks.
+**BlastVibe-GNN** is a production-grade Machine Learning pipeline engineered to predict blast-induced ground vibration (Peak Particle Velocity - PPV) using **Graph Attention Networks (GAT)**. Combining domain-specific blast mechanics (USBM Scaled Distance) with geometric deep learning, the architecture conducts **tabular inference using KNN feature-space graphs**.
 
-Designed for enterprise reliability, the system implements a **zero-leakage inductive bipartite graph topology**, $O(N \log N)$ scalable spatial indexing via `cKDTree`, equitable nested cross-validation benchmarking against XGBoost and classical physics laws, and a decoupled, secure inference engine hardened against arbitrary code execution vulnerabilities (**CWE-502**).
+Designed for enterprise reliability, the system implements a **zero-leakage inductive bipartite graph topology**, Pure PyTorch GPU-accelerated spatial indexing using `torch.cdist` and `knn_graph`, equitable nested cross-validation benchmarking against XGBoost and classical physics laws, and a decoupled, secure inference engine hardened against arbitrary code execution vulnerabilities (**CWE-502**).
+
+The pipeline enforces strict partitioning: **the model is evaluated using a strict 80/20 data split. The inductive graph trains on 160 reference nodes (80% of the 200 total records) and is independently benchmarked on a completely unseen hold-out test set of 40 nodes.**
 
 ---
 
@@ -25,17 +27,18 @@ flowchart LR
         direction TB
         Raw["Raw Blast Data<br/>(DIS, CHARGE)"]
         Physics["Domain Engineering<br/>(Scaled Distance - SD)"]
+        Split["Strict 80/20 Split<br/>(160 Train / 40 Test)"]
         Scale["Feature Scaling<br/>(Isolated per Fold)"]
-        Raw --> Physics --> Scale
+        Raw --> Physics --> Split --> Scale
     end
 
     subgraph DT["2. Inductive Graph Training"]
         direction TB
-        KDTree["Spatial Indexing<br/>(cKDTree O(N log N))"]
+        Spatial["Spatial Indexing<br/>(torch.cdist / knn_graph)"]
         Graph["Bipartite Topology<br/>(Train -> Query edges only)"]
         GAT["Multi-Head GAT<br/>(PyTorch Geometric)"]
-        Early["90/10 Holdout &<br/>Early Stopping"]
-        Scale --> KDTree --> Graph --> GAT --> Early
+        Early["100% X_train Fit &<br/>CV-Optimal Epochs"]
+        Scale --> Spatial --> Graph --> GAT --> Early
     end
 
     subgraph INF["3. Secure Production Inference"]
@@ -54,9 +57,10 @@ flowchart LR
 ## ⚡ Key Engineering Features
 
 - **Leak-Free Inductive Graph Construction**: Eliminated transductive data leakage by constructing a strictly directed bipartite graph during evaluation and inference. Message passing flows exclusively from reference training nodes to unseen query nodes (`train -> query`), preventing target contamination and inter-query leakage.
-- **$O(N \log N)$ Scalability via Spatial Indexing**: Replaced dense $O(N^2)$ pairwise distance matrices (`torch.cdist`) with `scipy.spatial.cKDTree`. This reduces memory overhead from quadratic to linear $O(N)$ and enables logarithmic neighbor lookups, preventing Out-Of-Memory (OOM) bottlenecks on large-scale monitoring datasets.
+- **Zero-Dependency Vectorized Neighbor Construction**: Pure PyTorch GPU-accelerated spatial indexing using `torch.cdist` and `knn_graph`. This eliminates hard environmental crashes on platforms lacking compiled C++ extensions (`pyg-lib`) while maintaining GPU tensor acceleration.
+- **Strict 80/20 Holdout Partitioning**: The model is evaluated using a strict 80/20 data split. The inductive graph trains on 160 reference nodes (80% of the 200 total records) and is independently benchmarked on a completely unseen hold-out test set of 40 nodes.
 - **Secure Model Serialization (CWE-502 Remediated)**: Decoupled PyTorch network weights from Scikit-Learn `StandardScaler` objects. Model checkpoints are deserialized strictly with `torch.load(..., weights_only=True)`, while scaler statistics (`mean_`, `scale_`, `var_`) are persisted as lightweight JSON primitives (`scaler_params.json`), neutralizing arbitrary Python pickle execution risks.
-- **Overfitting-Proof Production Checkpointing**: Replaced blind fixed-epoch full-dataset fitting with a dedicated 90/10 train/holdout split and early stopping validation monitor prior to final artifact serialization.
+- **CV-Optimal Deterministic Production Training**: Checkpoints are monitored via `fit_model_with_early_stopping` across validation folds, and the final production model is trained deterministically on 100% of the training data using the mean optimal epoch count.
 - **Equitable Baseline Benchmarking**: Benchmarked the GAT architecture against both the classical USBM empirical attenuation power-law ($PPV = K \cdot SD^{-\beta}$) and a rigorously tuned XGBoost regressor evaluated via nested cross-validation (3-fold inner `GridSearchCV` inside 5-fold outer CV).
 - **Automated CI/CD & Invariant Testing**: GitHub Actions workflow (`.github/workflows/ci.yml`) executing `pytest` across Python 3.10–3.12 to enforce structural graph invariants, gradient flow integrity, and serialization round-trips.
 
@@ -93,7 +97,7 @@ flowchart LR
 │       ├── data/
 │       │   ├── __init__.py
 │       │   ├── loader.py           # Ingestion, schema validation & USBM Scaled Distance
-│       │   └── graph.py            # Inductive cKDTree bipartite graph builder
+│       │   └── graph.py            # Inductive bipartite graph builder (torch.cdist / knn_graph)
 │       ├── models/
 │       │   ├── __init__.py
 │       │   ├── gat.py              # PyG Multi-Head Graph Attention Network (GATRegressor)
@@ -101,7 +105,7 @@ flowchart LR
 │       │   └── predictor.py        # Secure standalone inference engine (weights_only=True)
 │       ├── training/
 │       │   ├── __init__.py
-│       │   └── trainer.py          # K-Fold CV, 90/10 holdout early stopping & JSON export
+│       │   └── trainer.py          # K-Fold CV, CV-optimal epoch production training & JSON export
 │       └── utils/
 │           ├── __init__.py
 │           └── logger.py           # Centralized structured logging
@@ -126,7 +130,7 @@ flowchart LR
 
 ```bash
 # 1. Clone repository
-git clone [https://github.com/Taha-JN/02_blastvibe-gat-gnn.git](https://github.com/Taha-JN/02_blastvibe-gat-gnn.git)
+git clone https://github.com/Taha-JN/02_blastvibe-gat-gnn.git
 cd 02_blastvibe-gat-gnn
 
 # 2. Initialize virtual environment
@@ -144,7 +148,7 @@ pip install -e .
 ## 🚀 Execution Workflow
 
 ### Step 1: Run Full Training & Benchmark Pipeline
-Execute the end-to-end training pipeline. This ingests the dataset, runs nested CV benchmarks for USBM and XGBoost, performs 5-fold cross-validation across the GAT hyperparameter grid, and trains the final production model with 90/10 early stopping:
+Execute the end-to-end training pipeline. This partitions the data into a strict 80/20 train/test split, runs nested CV benchmarks for USBM and XGBoost, performs 5-fold cross-validation across the GAT hyperparameter grid, trains the final production model on 100% of the training partition (160 nodes), and verifies inductive generalization on the untouched 40-node holdout test set:
 ```bash
 python main.py
 ```
@@ -184,6 +188,6 @@ pytest tests/ -v
 ## 🙏 Acknowledgments & Dependencies
 
 - **[PyTorch Geometric (PyG)](https://pyg.org/)**: Multi-head Graph Attention Network (`GATConv`) layers.
-- **[SciPy](https://scipy.org/)**: `cKDTree` spatial indexing for $O(N \log N)$ neighbor queries.
+- **[PyTorch](https://pytorch.org/)**: Pure PyTorch GPU-accelerated spatial indexing using `torch.cdist` and `knn_graph`.
 - **[XGBoost](https://xgboost.readthedocs.io/)**: Gradient Boosted Decision Trees baseline.
 - **[Scikit-Learn](https://scikit-learn.org/)**: Preprocessing, cross-validation splitting, and evaluation metrics.
