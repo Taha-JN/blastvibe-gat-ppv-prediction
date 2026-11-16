@@ -208,7 +208,7 @@ class BlastVibePredictor:
         Calculates USBM Scaled Distance automatically if omitted.
         """
         if sd is None:
-            sd = compute_scaled_distance(dis, charge)
+            sd = compute_scaled_distance(dis, charge)  # type: ignore[assignment]
         else:
             if charge <= 0:
                 raise ValueError("Explosive charge must be strictly positive.")

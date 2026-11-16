@@ -73,7 +73,8 @@ def run_usbm_baseline(
     oof_predictions = np.zeros_like(y, dtype=float)
 
     r2_scores, mae_scores, mse_scores, rmse_scores = [], [], [], []
-    k_params, beta_params = [], []
+    k_params: list[float] = []
+    beta_params: list[float] = []
 
     sd_all = X[:, sd_index]
     if (sd_all <= 0).any():
@@ -85,6 +86,8 @@ def run_usbm_baseline(
         fold_model = USBMRegressor(sd_index=sd_index)
         fold_model.fit(X[train_idx], y[train_idx])
 
+        assert fold_model.K_val is not None
+        assert fold_model.beta_val is not None
         k_params.append(fold_model.K_val)
         beta_params.append(fold_model.beta_val)
 
