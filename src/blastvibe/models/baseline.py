@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal, overload
 
 import numpy as np
 import xgboost as xgb
@@ -41,6 +41,28 @@ class USBMRegressor:
         log_sd = np.log(sd).reshape(-1, 1)
         preds = np.exp(self.reg.predict(log_sd))
         return np.maximum(0.0, preds)
+
+
+@overload
+def run_usbm_baseline(
+    X: np.ndarray,
+    y: np.ndarray,
+    sd_index: int = ...,
+    n_splits: int = ...,
+    random_state: int = ...,
+    return_model: Literal[False] = ...,
+) -> tuple[dict[str, float], np.ndarray]: ...
+
+
+@overload
+def run_usbm_baseline(
+    X: np.ndarray,
+    y: np.ndarray,
+    sd_index: int = ...,
+    n_splits: int = ...,
+    random_state: int = ...,
+    return_model: Literal[True] = ...,
+) -> tuple[dict[str, float], np.ndarray, USBMRegressor]: ...
 
 
 def run_usbm_baseline(
@@ -121,6 +143,30 @@ def run_usbm_baseline(
         return metrics, oof_predictions, final_model
 
     return metrics, oof_predictions
+
+
+@overload
+def run_xgboost_baseline(
+    X: np.ndarray,
+    y: np.ndarray,
+    n_splits: int = ...,
+    random_state: int = ...,
+    param_grid: dict[str, Any] | None = ...,
+    inner_cv_splits: int = ...,
+    return_model: Literal[False] = ...,
+) -> tuple[dict[str, float], np.ndarray]: ...
+
+
+@overload
+def run_xgboost_baseline(
+    X: np.ndarray,
+    y: np.ndarray,
+    n_splits: int = ...,
+    random_state: int = ...,
+    param_grid: dict[str, Any] | None = ...,
+    inner_cv_splits: int = ...,
+    return_model: Literal[True] = ...,
+) -> tuple[dict[str, float], np.ndarray, xgb.XGBRegressor]: ...
 
 
 def run_xgboost_baseline(

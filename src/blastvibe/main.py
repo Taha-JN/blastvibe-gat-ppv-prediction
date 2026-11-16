@@ -48,7 +48,7 @@ def find_project_root() -> Path:
 PROJECT_ROOT = find_project_root()
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     default_config_path = PROJECT_ROOT / "configs" / "default_config.yaml"
     parser = argparse.ArgumentParser(
         description="BlastVibe-GNN: Production-Ready Graph Neural Network Pipeline for Ground Vibration Regression"
@@ -87,7 +87,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
     return PipelineConfig(**raw_config)
 
 
-def main():
+def main() -> None:
     args = parse_args()
     pipeline_config = load_config(args.config)
     set_seed(pipeline_config.cv.random_state)
