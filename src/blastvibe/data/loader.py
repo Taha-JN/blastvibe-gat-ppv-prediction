@@ -107,8 +107,7 @@ def load_raw_dataset(
 
     clean_df = df[feature_cols + [target_col]].dropna().copy()
     logger.info(
-        f"Loaded and validated {len(clean_df)} records from {path}. "
-        f"Features: {feature_cols}, Target: {target_col}"
+        f"Loaded and validated {len(clean_df)} records from {path}. " f"Features: {feature_cols}, Target: {target_col}"
     )
     return clean_df
 

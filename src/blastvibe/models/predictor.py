@@ -157,11 +157,7 @@ class BlastVibePredictor:
                 )
 
             # Robust dynamic column projection regardless of input column ordering
-            features = (
-                df_in[self.feature_names]
-                .apply(pd.to_numeric, errors="raise")
-                .values.astype(np.float32)
-            )
+            features = df_in[self.feature_names].apply(pd.to_numeric, errors="raise").values.astype(np.float32)
         elif isinstance(raw_features, np.ndarray):
             features = raw_features.astype(np.float32)
         else:
