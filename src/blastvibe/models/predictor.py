@@ -165,9 +165,9 @@ class BlastVibePredictor:
 
         # Handle single-sample 1D input
         if features.ndim == 1:
-            features = features.reshape(1, -1)
+            features = features.reshape(1, -1)  # type: ignore[assignment]
 
-        if features.ndim != 2 or features.shape[1] != self.x_train_ref.size(1):
+        if features.ndim != 2 or features.shape[1] != self.x_train_ref.size(1):  # type: ignore[misc]
             raise ValueError(f"Expected features shape [N, {self.x_train_ref.size(1)}], got {features.shape}")
 
         # Scale features strictly using reference training statistics (vectorized with division-by-zero guard)
