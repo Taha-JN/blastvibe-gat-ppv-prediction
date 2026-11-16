@@ -4,17 +4,18 @@ from typing import Union
 import yaml
 import torch
 import numpy as np
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-
+from scipy.stats import wilcoxon
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+
+from blastvibe.configs.schema import PipelineConfig
 from blastvibe.data.loader import load_raw_dataset
 from blastvibe.models.baseline import run_xgboost_baseline, run_usbm_baseline
 from blastvibe.models.predictor import BlastVibePredictor
-from blastvibe.training.trainer import run_cross_validation_grid_search
+from blastvibe.training.grid import run_cross_validation_grid_search
 from blastvibe.utils.logger import setup_logger
 
+SCRIPT_DIR = Path(__file__).resolve().parent
 logger = setup_logger("blastvibe.main")
 
 
@@ -42,21 +43,23 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_config(config_path: Union[str, Path]) -> dict:
+def load_config(config_path: Union[str, Path]) -> PipelineConfig:
     config_file = Path(config_path).resolve()
     if not config_file.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_file}")
     with open(config_file, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-    return config
+        raw_config = yaml.safe_load(f) or {}
+    # Strict fail-fast validation with Pydantic
+    return PipelineConfig(**raw_config)
 
 
 def main():
     args = parse_args()
-    config = load_config(args.config)
+    pipeline_config = load_config(args.config)
+    config = pipeline_config.to_dict()
 
     # Modernized path resolution using pathlib.Path
-    raw_path = Path(args.data_path or config.get("data", {}).get("raw_path", "data/data.csv"))
+    raw_path = Path(args.data_path or pipeline_config.data.raw_path)
     if raw_path.is_absolute():
         data_path = raw_path
     else:
@@ -67,8 +70,8 @@ def main():
     if not data_path.exists():
         raise FileNotFoundError(f"Dataset file not found at: {data_path}")
 
-    feature_cols = config.get("data", {}).get("feature_cols", ["DIS", "CHARGE", "SD"])
-    target_col = config.get("data", {}).get("target_col", "SUM")
+    feature_cols = pipeline_config.data.feature_cols
+    target_col = pipeline_config.data.target_col
 
     logger.info("=" * 60)
     logger.info("BlastVibe-GNN: Production Machine Learning Pipeline")
@@ -81,9 +84,8 @@ def main():
 
     # 2. Strict 80/20 Train-Test Split (Isolated Hold-out Test Set)
     # The 20% test partition is strictly isolated BEFORE any CV, tuning, or fitting
-    cv_cfg = config.get("cv", {})
-    random_state = cv_cfg.get("random_state", 42)
-    shuffle = cv_cfg.get("shuffle", True)
+    random_state = pipeline_config.cv.random_state
+    shuffle = pipeline_config.cv.shuffle
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.20, random_state=random_state, shuffle=shuffle
@@ -105,7 +107,7 @@ def main():
             X=X_train,
             y=y_train,
             sd_index=feature_cols.index("SD") if "SD" in feature_cols else 2,
-            n_splits=config.get("cv", {}).get("n_splits", 5),
+            n_splits=pipeline_config.cv.n_splits,
             random_state=random_state,
             return_model=True,
         )
@@ -116,13 +118,13 @@ def main():
         baseline_metrics, _, xgb_model = run_xgboost_baseline(
             X=X_train,
             y=y_train,
-            n_splits=config.get("cv", {}).get("n_splits", 5),
+            n_splits=pipeline_config.cv.n_splits,
             random_state=random_state,
             return_model=True,
         )
 
     # 4. GAT Model Cross-Validation & Grid Search strictly on 80% Train Set
-    device_setting = config.get("training", {}).get("device", "auto")
+    device_setting = pipeline_config.training.device
     if device_setting == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
@@ -153,7 +155,7 @@ def main():
         )
 
         # 5. Production Inference Engine & Final Evaluation on 20% Unseen Test Set
-        model_file = Path(config.get("artifacts", {}).get("best_model_file", "artifacts/models/best_gat_model.pt"))
+        model_file = Path(pipeline_config.artifacts.best_model_file)
         best_model_path = model_file if model_file.is_absolute() else (SCRIPT_DIR / model_file).resolve()
 
         logger.info("-" * 40)
@@ -205,8 +207,6 @@ def main():
 
         # 6. Statistical Rigor: Wilcoxon Signed-Rank Hypothesis Testing
         if usbm_model is not None:
-            from scipy.stats import wilcoxon
-
             logger.info("-" * 40)
             logger.info("STATISTICAL RIGOR: Wilcoxon Signed-Rank Hypothesis Testing")
             logger.info("-" * 40)

@@ -1,6 +1,30 @@
 import torch
 import pytest
-from blastvibe.data.graph import build_train_knn_graph, build_inductive_graph
+from blastvibe.data.graph import (
+    build_train_knn_graph,
+    build_inductive_graph,
+    build_scalable_knn_graph,
+)
+
+
+def test_build_scalable_knn_graph_ckdtree():
+    """Asserts that cKDTree-based build_scalable_knn_graph drops self-loops and scales properly."""
+    torch.manual_seed(42)
+    n_nodes = 25
+    k = 4
+    x = torch.randn(n_nodes, 3)
+
+    edge_index = build_scalable_knn_graph(x, k=k, loop=False)
+
+    assert edge_index.shape == (2, n_nodes * k)
+    # Check that no self-loops exist
+    for src, dst in zip(edge_index[0].tolist(), edge_index[1].tolist()):
+        assert src != dst, f"Self-loop detected: {src} -> {dst}"
+
+    # Check in-degrees
+    dst_nodes = edge_index[1].tolist()
+    for node_idx in range(n_nodes):
+        assert dst_nodes.count(node_idx) == k
 
 
 def test_train_knn_graph_no_duplicate_edges():

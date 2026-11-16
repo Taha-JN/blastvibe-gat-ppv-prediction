@@ -57,7 +57,10 @@ flowchart LR
 ## ⚡ Key Engineering Features
 
 - **Leak-Free Inductive Graph Construction**: Eliminated transductive data leakage by constructing a strictly directed bipartite graph during evaluation and inference. Message passing flows exclusively from reference training nodes to unseen query nodes (`train -> query`), preventing target contamination and inter-query leakage.
-- **Zero-Dependency Vectorized Neighbor Construction**: Pure PyTorch GPU-accelerated spatial indexing using `torch.cdist` and `knn_graph`. This eliminates hard environmental crashes on platforms lacking compiled C++ extensions (`pyg-lib`) while maintaining GPU tensor acceleration.
+- **Scalable $O(N \log N)$ Spatial Indexing**: High-performance spatial indexing using `scipy.spatial.cKDTree`. Eliminates $O(N^2)$ memory and compute bottlenecks of pairwise distance matrices, dropping self-loops by querying $k+1$ neighbors.
+- **Dynamic Receptive Field Subgraph Inference**: Localized $k$-hop subgraph extraction dynamically bound to the actual GNN architecture depth (`num_hops = len(model.convs)`), ensuring zero receptive field truncation for deep architectures.
+- **Strict Pydantic Configuration Validation**: Master `PipelineConfig` schema powered by Pydantic v2 enforces boundary validation, strict type safety, and `extra="forbid"` fail-fast checks.
+- **Decoupled Single Responsibility Training**: Monolithic training pipeline refactored into focused modules: `engine` (fold fitting & caching), `grid` (CV orchestration), and `artifacts` (production serialization).
 - **Strict 80/20 Holdout Partitioning**: The model is evaluated using a strict 80/20 data split. The inductive graph trains on 160 reference nodes (80% of the 200 total records) and is independently benchmarked on a completely unseen hold-out test set of 40 nodes.
 - **Secure Model Serialization (CWE-502 Remediated)**: Decoupled PyTorch network weights from Scikit-Learn `StandardScaler` objects. Model checkpoints are deserialized strictly with `torch.load(..., weights_only=True)`, while scaler statistics (`mean_`, `scale_`, `var_`) are persisted as lightweight JSON primitives (`scaler_params.json`), neutralizing arbitrary Python pickle execution risks.
 - **CV-Optimal Deterministic Production Training**: Checkpoints are monitored via `fit_model_with_early_stopping` across validation folds, and the final production model is trained deterministically on 100% of the training data using the mean optimal epoch count.
@@ -94,27 +97,36 @@ flowchart LR
 ├── src/
 │   └── blastvibe/
 │       ├── __init__.py             # Package exports (BlastVibePredictor)
+│       ├── configs/
+│       │   ├── __init__.py
+│       │   └── schema.py           # Strict Pydantic configuration schemas (PipelineConfig)
 │       ├── data/
 │       │   ├── __init__.py
 │       │   ├── loader.py           # Ingestion, schema validation & USBM Scaled Distance
-│       │   └── graph.py            # Inductive bipartite graph builder (torch.cdist / knn_graph)
+│       │   └── graph.py            # Scalable cKDTree spatial indexing & inductive bipartite graph builder
 │       ├── models/
 │       │   ├── __init__.py
 │       │   ├── gat.py              # PyG Multi-Head Graph Attention Network (GATRegressor)
 │       │   ├── baseline.py         # USBM physics law & Nested-CV XGBoost benchmarks
-│       │   └── predictor.py        # Secure standalone inference engine (weights_only=True)
+│       │   └── predictor.py        # Secure standalone inference engine (dynamic subgraphs, weights_only=True)
 │       ├── training/
 │       │   ├── __init__.py
-│       │   └── trainer.py          # K-Fold CV, CV-optimal epoch production training & JSON export
+│       │   ├── engine.py           # Single-fold model training, early stopping & topology caching
+│       │   ├── grid.py             # K-Fold CV partitioning & hyperparameter grid search
+│       │   ├── artifacts.py        # Production re-fitting, JSON scalers & artifact persistence
+│       │   └── trainer.py          # Unified training facade re-exporting decoupled modules
 │       └── utils/
 │           ├── __init__.py
 │           └── logger.py           # Centralized structured logging
 ├── tests/                          # Automated PyTest invariant & contract suite
 │   ├── __init__.py
+│   ├── test_baselines.py           # Asserts physical constants recovery & XGBoost nested CV
+│   ├── test_config_schema.py       # Asserts Pydantic validation rules and boundary constraints
 │   ├── test_data_loader.py         # Asserts physics feature engineering & scaler isolation
-│   ├── test_graph_builder.py       # Asserts zero-leakage directed edge invariants
-│   ├── test_model_forward.py       # Asserts tensor shapes and backward gradient flow
-│   └── test_predictor.py           # Asserts CWE-502 safe deserialization round-trips
+│   ├── test_graph_builder.py       # Asserts cKDTree spatial indexing & zero-leakage invariants
+│   ├── test_model_forward.py       # Asserts tensor shapes, dynamic ModuleList & gradient flow
+│   ├── test_predictor.py           # Asserts CWE-502 safe deserialization & zero-scale guards
+│   └── test_trainer.py             # Asserts topology caching & out-of-fold array population
 └── main.py                         # Production CLI entry point
 ```
 

@@ -4,7 +4,11 @@ from blastvibe.data.loader import (
     compute_scaled_distance,
     ProcessedFoldData,
 )
-from blastvibe.data.graph import build_train_knn_graph, build_inductive_graph
+from blastvibe.data.graph import (
+    build_train_knn_graph,
+    build_inductive_graph,
+    build_scalable_knn_graph,
+)
 
 __all__ = [
     "load_raw_dataset",
@@ -13,4 +17,5 @@ __all__ = [
     "ProcessedFoldData",
     "build_train_knn_graph",
     "build_inductive_graph",
+    "build_scalable_knn_graph",
 ]

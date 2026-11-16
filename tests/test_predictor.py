@@ -178,3 +178,44 @@ def test_predictor_dataframe_schema_assertion(tmp_path):
 def test_predictor_cold_start_missing_checkpoint_raises_runtime_error():
     with pytest.raises(RuntimeError, match="You must first run 'python main.py'"):
         BlastVibePredictor("nonexistent_model_checkpoint.pt")
+
+
+def test_predictor_zero_scale_guard(tmp_path):
+    """Asserts that division-by-zero is protected when scale parameter is zero."""
+    torch.manual_seed(42)
+    x_train_ref = torch.randn(10, 3)
+    train_edge_index = build_train_knn_graph(x_train_ref, k=2, loop=False)
+    model = GATRegressor(in_dim=3, hidden_dim=8, heads=1, dropout=0.0)
+
+    # Mock scaler where one feature has zero scale
+    scaler_params = {
+        "scaler_x": {
+            "mean": [10.0, 20.0, 30.0],
+            "scale": [0.0, 5.0, 10.0],  # 0.0 scale triggers zero division guard
+            "var": [0.0, 25.0, 100.0],
+        },
+        "scaler_y": {
+            "mean": [50.0],
+            "scale": [15.0],
+            "var": [225.0],
+        },
+    }
+    with open(tmp_path / "scaler_params.json", "w", encoding="utf-8") as f:
+        json.dump(scaler_params, f)
+
+    bundle_path = tmp_path / "bundle.pt"
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "hyperparameters": {"k_neighbors": 2, "hidden_dim": 8, "heads": 1},
+            "x_train_ref": x_train_ref,
+            "train_edge_index": train_edge_index,
+        },
+        str(bundle_path),
+    )
+
+    predictor = BlastVibePredictor(str(bundle_path), device="cpu")
+    preds = predictor.predict(np.array([[10.0, 25.0, 40.0]]))
+    assert len(preds) == 1
+    assert np.all(np.isfinite(preds)), "Zero-scale input must not produce NaNs or Infs"
+

@@ -1,26 +1,57 @@
 from typing import Tuple, Optional
+import numpy as np
 import torch
+from scipy.spatial import cKDTree
 
 from blastvibe.utils.logger import setup_logger
 
 logger = setup_logger("blastvibe.data.graph")
 
 
-def _torch_native_knn_graph(x: torch.Tensor, k: int, loop: bool = False) -> torch.Tensor:
+def build_scalable_knn_graph(x: torch.Tensor, k: int = 8, loop: bool = False) -> torch.Tensor:
     """
-    Pure PyTorch vectorized K-NN graph construction.
+    O(N log N) scalable spatial indexing using scipy.spatial.cKDTree.
     
-    Eliminates external C++ binary dependencies (such as pyg-lib) by leveraging
-    hardware-accelerated torch.cdist and torch.topk.
+    Eliminates O(N^2) memory and compute bottlenecks of pairwise distance matrices
+    (torch.cdist), enabling scalable neighbor construction for large-scale datasets.
+    
+    Args:
+        x: Feature tensor of shape [N, D].
+        k: Number of nearest neighbors per node.
+        loop: Whether to include self-loops. Defaults to False.
+        
+    Returns:
+        edge_index: Graph edge tensor of shape [2, N * k] with no duplicate edges.
     """
+    if x.dim() != 2:
+        raise ValueError(f"x must be 2D tensor, got shape {x.shape}")
+
     n_nodes = x.size(0)
-    dist = torch.cdist(x, x)
+    if k >= n_nodes:
+        raise ValueError(f"k ({k}) must be strictly less than number of nodes ({n_nodes})")
+
+    x_np = x.detach().cpu().numpy()
+    tree = cKDTree(x_np)
+
     if not loop:
-        dist.fill_diagonal_(float("inf"))
-    _, neighbors = torch.topk(dist, k=k, dim=1, largest=False)
-    src_nodes = neighbors.flatten()
+        # Query k + 1 to drop the self-loop (first neighbor at distance 0)
+        _, indices = tree.query(x_np, k=k + 1)
+        if (k + 1) == 1:
+            indices = indices.reshape(-1, 1)
+        neighbors = indices[:, 1:]
+    else:
+        _, indices = tree.query(x_np, k=k)
+        if k == 1:
+            indices = indices.reshape(-1, 1)
+        neighbors = indices
+
+    src_nodes = torch.tensor(neighbors.flatten(), dtype=torch.long, device=x.device)
     dst_nodes = torch.arange(n_nodes, device=x.device).repeat_interleave(k)
     return torch.stack([src_nodes, dst_nodes], dim=0)
+
+
+# Backward compatibility alias
+_torch_native_knn_graph = build_scalable_knn_graph
 
 
 def build_train_knn_graph(
@@ -51,10 +82,10 @@ def build_train_knn_graph(
         if getattr(pyg_typing, "WITH_KNN", False):
             from torch_geometric.nn import knn_graph
             return knn_graph(x_train, k=k, loop=loop)
-    except (ImportError, Exception):
+    except (ImportError, RuntimeError, AttributeError):
         pass
 
-    return _torch_native_knn_graph(x_train, k=k, loop=loop)
+    return build_scalable_knn_graph(x_train, k=k, loop=loop)
 
 
 def build_inductive_graph(
@@ -65,7 +96,7 @@ def build_inductive_graph(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Constructs an inductive inference graph for out-of-sample query/test nodes
-    using pure PyTorch GPU-accelerated operations.
+    using scalable O(N_query * log(N_train)) spatial indexing via cKDTree.
     
     Zero Data Leakage Guarantee:
     1. The reference graph (train_edge_index) remains purely internal to x_train.
@@ -95,7 +126,7 @@ def build_inductive_graph(
     x_query = x_query.to(device=device, dtype=x_train.dtype)
     train_edge_index = train_edge_index.to(device)
 
-    # Attempt PyG accelerated knn if available with compiled pyg-lib; fall back to pure PyTorch cdist
+    # Attempt PyG accelerated knn if available with compiled pyg-lib; fall back to scalable cKDTree
     used_pyg = False
     try:
         import torch_geometric.typing as pyg_typing
@@ -105,15 +136,18 @@ def build_inductive_graph(
             src_nodes = assign_index[1]
             dst_nodes = assign_index[0] + n_train
             used_pyg = True
-    except (ImportError, Exception):
+    except (ImportError, RuntimeError, AttributeError):
         pass
 
     if not used_pyg:
-        # High-performance, pure PyTorch GPU/CPU fallback without C++ binary dependency
-        # dist: [N_query, N_train]
-        dist = torch.cdist(x_query, x_train)
-        _, neighbor_indices = torch.topk(dist, k=k, dim=1, largest=False)
-        src_nodes = neighbor_indices.flatten()
+        # High-performance, O(N_query * log(N_train)) scalable cKDTree spatial indexing
+        x_train_np = x_train.detach().cpu().numpy()
+        x_query_np = x_query.detach().cpu().numpy()
+        tree = cKDTree(x_train_np)
+        _, neighbor_indices = tree.query(x_query_np, k=k)
+        if k == 1:
+            neighbor_indices = neighbor_indices.reshape(-1, 1)
+        src_nodes = torch.tensor(neighbor_indices.flatten(), dtype=torch.long, device=device)
         dst_nodes = torch.arange(n_train, n_train + n_query, device=device).repeat_interleave(k)
 
     query_edge_index = torch.stack([src_nodes, dst_nodes], dim=0)

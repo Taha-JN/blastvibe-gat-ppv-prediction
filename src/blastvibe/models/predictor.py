@@ -158,8 +158,9 @@ class BlastVibePredictor:
                 f"Expected features shape [N, {self.x_train_ref.size(1)}], got {features.shape}"
             )
 
-        # Scale features strictly using reference training statistics (vectorized)
-        scaled_features = (features - self.x_mean) / self.x_scale
+        # Scale features strictly using reference training statistics (vectorized with division-by-zero guard)
+        scale_safe = np.where(self.x_scale == 0.0, 1.0, self.x_scale)
+        scaled_features = (features - self.x_mean) / scale_safe
         x_query = torch.tensor(scaled_features, dtype=torch.float32, device=self.device)
 
         # Inductively connect query nodes to training reference graph
@@ -171,15 +172,16 @@ class BlastVibePredictor:
                 k=self.k_neighbors,
             )
 
-            # Localize inference graph via 2-hop subgraph extraction around query nodes
+            # Localize inference graph via dynamic k-hop subgraph extraction matching GNN architecture depth
             # Eliminates O(N_train) forward-pass memory and compute scaling
             n_train = self.x_train_ref.size(0)
             n_query = x_query.size(0)
             query_node_indices = torch.arange(n_train, n_train + n_query, device=self.device)
 
+            num_hops = len(self.model.convs) if hasattr(self.model, "convs") else 2
             subset, sub_edge_index, mapping, _ = k_hop_subgraph(
                 node_idx=query_node_indices,
-                num_hops=2,
+                num_hops=num_hops,
                 edge_index=eval_edge_index,
                 relabel_nodes=True,
                 flow="source_to_target",

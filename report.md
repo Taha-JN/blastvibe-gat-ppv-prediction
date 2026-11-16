@@ -23,8 +23,8 @@ To elevate this project to senior production standards, the machine learning met
    - The reference graph topology is constructed strictly on the training partition ($X_{train}$) using $k$-Nearest Neighbors.
    - For out-of-sample evaluation ($X_{val}$ / $X_{test}$), query nodes are connected via directed edges strictly from their nearest neighbors in $X_{train}$.
    - **Zero Backward Flow**: No edges exist pointing from validation/test nodes into training nodes, and no edges connect query nodes to each other. Message passing preserves total train independence.
-3. **Deduplicated Graph Edges & Zero-Dependency Fallback**:
-   - Eliminates legacy nested loop bugs that introduced duplicate bidirectional edges. Pure PyTorch GPU-accelerated spatial indexing using `torch.cdist` and `knn_graph` ensures compatibility on systems without compiled C++ `pyg-lib` binaries.
+3. **Deduplicated Graph Edges & Scalable O(N log N) Spatial Indexing**:
+   - Eliminates legacy nested loop bugs that introduced duplicate bidirectional edges. Scalable $O(N \log N)$ spatial indexing using `scipy.spatial.cKDTree` eliminates $O(N^2)$ memory bottlenecks of pairwise distance matrices while maintaining seamless cross-platform execution without compiled C++ `pyg-lib` binaries.
 4. **CV-Optimal Deterministic Production Checkpointing**:
    - Optimal checkpoints are selected based strictly on validation error across cross-validation folds. The mean optimal epoch is then applied deterministically to train the production model on 100% of the training partition, eliminating pseudo early-stopping.
 5. **Empirical Benchmarking**:
