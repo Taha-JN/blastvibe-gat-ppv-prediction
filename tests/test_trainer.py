@@ -115,7 +115,7 @@ def test_topology_cache_and_train_single_fold():
     assert cached_topo.x_train_t.size(0) == 10
     assert cached_topo.x_eval.size(0) == 15
 
-    metrics, fold_preds, best_state = train_single_fold(
+    metrics, fold_preds, _best_state = train_single_fold(
         fold_idx=0,
         fold_data=folds[0],
         cached_topo=cached_topo,

@@ -168,7 +168,7 @@ class BlastVibePredictor:
 
         # Inductively connect query nodes to training reference graph
         with torch.no_grad():
-            x_combined, eval_edge_index, query_mask = build_inductive_graph(
+            x_combined, eval_edge_index, _query_mask = build_inductive_graph(
                 x_train=self.x_train_ref,
                 x_query=x_query,
                 train_edge_index=self.train_edge_index,
