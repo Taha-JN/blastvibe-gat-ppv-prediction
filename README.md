@@ -9,7 +9,7 @@
 
 ---
 
-## 📖 Executive Summary
+## Executive Summary
 
 **BlastVibe-GNN** is a production-grade Machine Learning pipeline engineered to predict blast-induced ground vibration (Peak Particle Velocity - PPV) using **Graph Attention Networks (GAT)**. Combining domain-specific blast mechanics (USBM Scaled Distance) with geometric deep learning, the architecture conducts **tabular inference using KNN feature-space graphs**.
 
@@ -19,7 +19,7 @@ The pipeline enforces strict partitioning: **the model is evaluated using a stri
 
 ---
 
-## 🏗️ Architectural Overview
+## Architectural Overview
 
 ```mermaid
 flowchart LR
@@ -54,7 +54,7 @@ flowchart LR
 
 ---
 
-## ⚡ Key Engineering Features
+## Key Engineering Features
 
 - **Leak-Free Inductive Graph Construction**: Eliminated transductive data leakage by constructing a strictly directed bipartite graph during evaluation and inference. Message passing flows exclusively from reference training nodes to unseen query nodes (`train -> query`), preventing target contamination and inter-query leakage.
 - **Scalable $O(N \log N)$ Spatial Indexing**: High-performance spatial indexing using `scipy.spatial.cKDTree` on CPU. Eliminates $O(N^2)$ memory and compute bottlenecks of pairwise distance matrices, dropping self-loops by querying $k+1$ neighbors.
@@ -70,7 +70,7 @@ flowchart LR
 
 ---
 
-## 📊 Empirical Benchmarks
+## Empirical Benchmarks
 
 ### 1. Symmetrical Hold-out Test Set Benchmarks (40 Unseen Samples)
 
@@ -97,7 +97,7 @@ While the empirical USBM power law performs remarkably well on homogeneous rock 
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```text
 02_blastvibe-gat-gnn/
@@ -150,7 +150,7 @@ While the empirical USBM power law performs remarkably well on homogeneous rock 
 
 ---
 
-## 🛠️ Quick Setup
+## Quick Setup
 
 ### Prerequisites
 - **Python**: Version 3.10 or higher
@@ -175,7 +175,7 @@ pip install -e .
 
 ---
 
-## 🚀 Execution Workflow
+## Execution Workflow
 
 ### Step 1: Run Full Training & Benchmark Pipeline
 Execute the end-to-end training pipeline. This partitions the data into a strict 80/20 train/test split, runs nested CV benchmarks for USBM and XGBoost, performs 5-fold cross-validation across the GAT hyperparameter grid, trains the final production model on 100% of the training partition (160 nodes), and verifies inductive generalization on the untouched 40-node holdout test set:
@@ -215,7 +215,7 @@ pytest tests/ -v
 
 ---
 
-## 🙏 Acknowledgments & Dependencies
+## Acknowledgments & Dependencies
 
 - **[PyTorch Geometric (PyG)](https://pyg.org/)**: Multi-head Graph Attention Network (`GATConv`) layers.
 - **[SciPy](https://scipy.org/)**: $O(N \log N)$ highly scalable spatial indexing via `scipy.spatial.cKDTree` on CPU.
