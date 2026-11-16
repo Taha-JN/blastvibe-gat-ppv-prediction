@@ -1,12 +1,10 @@
-import os
-import pytest
 import numpy as np
 import torch
 
 from blastvibe.training.trainer import (
-    run_cross_validation_grid_search,
-    build_cv_folds,
     TopologyCache,
+    build_cv_folds,
+    run_cross_validation_grid_search,
     train_single_fold,
 )
 
@@ -94,9 +92,7 @@ def test_evaluate_hyperparameter_grid_populates_oof_preds(tmp_path):
     assert len(oof_preds) == n_samples, f"Expected {n_samples} OOF predictions, got {len(oof_preds)}"
 
     # Primary mathematical invariant: OOF predictions must NOT be all zeros
-    assert not np.all(oof_preds == 0.0), (
-        "Silent corruption detected: oof_predictions array contains all zeros!"
-    )
+    assert not np.all(oof_preds == 0.0), "Silent corruption detected: oof_predictions array contains all zeros!"
     # Furthermore, since all ground-truth targets are > 20, predictions must be positive and finite
     assert np.all(oof_preds > 0.0), "All OOF predictions must be positive non-zero values."
     assert np.all(np.isfinite(oof_preds)), "All OOF predictions must be finite numbers."

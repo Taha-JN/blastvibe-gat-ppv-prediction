@@ -1,14 +1,15 @@
 import copy
 from dataclasses import dataclass
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Any
+
 import numpy as np
 import torch
-import torch.nn as nn
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
+from torch import nn
 
+from blastvibe.data.graph import build_inductive_graph, build_train_knn_graph
 from blastvibe.data.loader import ProcessedFoldData
-from blastvibe.data.graph import build_train_knn_graph, build_inductive_graph
 from blastvibe.models.gat import GATRegressor
 from blastvibe.utils.logger import setup_logger
 
@@ -18,6 +19,7 @@ logger = setup_logger("blastvibe.training.engine")
 @dataclass
 class CachedFoldTopology:
     """Stores precomputed tensors and edge indices for a specific (k, fold) pair."""
+
     train_edge_index: torch.Tensor
     x_eval: torch.Tensor
     eval_edge_index: torch.Tensor
@@ -29,18 +31,19 @@ class CachedFoldTopology:
 class TopologyCache:
     """
     Precomputes and caches inductive KNN graph topologies across (k, fold) pairs.
-    
+
     Eliminates redundant spatial distance calculations and graph constructions
     across hyperparameter grid iterations (such as hidden_dim, lr, heads).
     """
+
     def __init__(
         self,
-        folds_data: List[ProcessedFoldData],
-        k_neighbors_list: List[int],
+        folds_data: list[ProcessedFoldData],
+        k_neighbors_list: list[int],
         device: torch.device,
     ):
         self.device = device
-        self.cache: Dict[Tuple[int, int], CachedFoldTopology] = {}
+        self.cache: dict[tuple[int, int], CachedFoldTopology] = {}
         logger.info(
             f"Precomputing TopologyCache for {len(k_neighbors_list)} k-values across "
             f"{len(folds_data)} CV folds on device: {device}..."
@@ -66,9 +69,7 @@ class TopologyCache:
                     x_train_t=x_train_t,
                     y_train_t=y_train_t,
                 )
-        logger.info(
-            f"TopologyCache successfully precomputed and cached {len(self.cache)} unique graph topologies."
-        )
+        logger.info(f"TopologyCache successfully precomputed and cached {len(self.cache)} unique graph topologies.")
 
     def get(self, k: int, fold_idx: int) -> CachedFoldTopology:
         return self.cache[(k, fold_idx)]
@@ -89,7 +90,7 @@ def fit_model_with_early_stopping(
     epochs: int,
     patience: int,
     eval_interval: int,
-) -> Tuple[Dict[str, float], np.ndarray, Optional[Dict[str, Any]]]:
+) -> tuple[dict[str, float], np.ndarray, dict[str, Any] | None]:
     """
     Fits a GNN model with validation monitoring and early stopping.
     """
@@ -159,7 +160,7 @@ def train_single_fold(
     patience: int,
     eval_interval: int,
     device: torch.device,
-) -> Tuple[Dict[str, float], np.ndarray, Optional[Dict[str, Any]]]:
+) -> tuple[dict[str, float], np.ndarray, dict[str, Any] | None]:
     """
     Trains a GATRegressor on a single fold using precomputed cached graph topologies.
     """

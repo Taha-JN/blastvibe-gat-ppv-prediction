@@ -1,29 +1,31 @@
-from typing import Optional, List, Union, Tuple, Any, Dict
+from typing import Any
+
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 from torch_geometric.nn import GATConv
 
 
 class GATRegressor(nn.Module):
     """
     Flexible Graph Attention Network (GAT) for node-level vibration regression.
-    
+
     Dynamically constructs an N-layer multi-head graph attention architecture
     using nn.ModuleList according to the Open/Closed Principle.
-    
+
     Supports arbitrary hidden layer sequences (hidden_dims: List[int]) where preceding
     layers utilize multi-head attention (concat=True) and the final convolution layer
     aggregates into a single-head representation (heads=1, concat=False).
     """
+
     def __init__(
         self,
         in_dim: int = 3,
-        hidden_dim: Optional[int] = 64,
-        out_hidden_dim: Optional[int] = None,
+        hidden_dim: int | None = 64,
+        out_hidden_dim: int | None = None,
         heads: int = 4,
         dropout: float = 0.2,
-        hidden_dims: Optional[Union[List[int], Tuple[int, ...]]] = None,
+        hidden_dims: list[int] | tuple[int, ...] | None = None,
     ):
         super().__init__()
         self.in_dim = in_dim
@@ -49,7 +51,7 @@ class GATRegressor(nn.Module):
         current_in = in_dim
 
         for i, h_dim in enumerate(self.hidden_dims):
-            is_last = (i == len(self.hidden_dims) - 1)
+            is_last = i == len(self.hidden_dims) - 1
             layer_heads = 1 if is_last else heads
             concat = not is_last
 
@@ -78,7 +80,7 @@ class GATRegressor(nn.Module):
             return self.convs[1]
         raise AttributeError("This GATRegressor instance has only 1 convolutional layer.")
 
-    def load_state_dict(self, state_dict: Dict[str, Any], strict: bool = True, **kwargs):
+    def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True, **kwargs):
         """
         Seamlessly remaps legacy checkpoints containing 'gat1.*' and 'gat2.*' keys
         into the modern ModuleList 'convs.0.*' and 'convs.1.*' structure.
@@ -98,11 +100,11 @@ class GATRegressor(nn.Module):
     def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
         """
         Forward pass for node regression across dynamically assembled GAT layers.
-        
+
         Args:
             x: Node feature matrix of shape [N, in_dim].
             edge_index: Graph edge indices of shape [2, E].
-            
+
         Returns:
             Continuous predictions tensor of shape [N].
         """
@@ -118,4 +120,4 @@ class GATRegressor(nn.Module):
 # Semantic alias conforming to Senior Architect naming conventions
 FlexibleGATRegressor = GATRegressor
 
-__all__ = ["GATRegressor", "FlexibleGATRegressor"]
+__all__ = ["FlexibleGATRegressor", "GATRegressor"]

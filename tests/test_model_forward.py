@@ -1,7 +1,8 @@
 import torch
-import torch.nn as nn
-from blastvibe.models.gat import GATRegressor, FlexibleGATRegressor
+from torch import nn
+
 from blastvibe.data.graph import build_train_knn_graph
+from blastvibe.models.gat import FlexibleGATRegressor, GATRegressor
 
 
 def test_flexible_gat_dynamic_layers():

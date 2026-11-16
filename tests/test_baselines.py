@@ -1,5 +1,6 @@
-import pytest
 import numpy as np
+import pytest
+
 from blastvibe.models.baseline import USBMRegressor, run_usbm_baseline, run_xgboost_baseline
 
 
@@ -55,7 +56,7 @@ def test_run_usbm_baseline_execution():
     np.random.seed(42)
     n_samples = 40
     sd = np.linspace(8.0, 45.0, n_samples)
-    ppv = 800.0 * (sd ** -1.3)
+    ppv = 800.0 * (sd**-1.3)
     charge = np.full(n_samples, 64.0)
     dis = sd * 8.0
     X = np.column_stack([dis, charge, sd])

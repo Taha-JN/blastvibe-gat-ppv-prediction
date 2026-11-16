@@ -1,11 +1,12 @@
 import json
-import pytest
+
 import numpy as np
+import pytest
 import torch
 from sklearn.preprocessing import StandardScaler
 
-from blastvibe.models.gat import GATRegressor
 from blastvibe.data.graph import build_train_knn_graph
+from blastvibe.models.gat import GATRegressor
 from blastvibe.models.predictor import BlastVibePredictor
 
 
@@ -70,10 +71,13 @@ def test_predictor_mock_roundtrip(tmp_path):
     predictor = BlastVibePredictor(bundle_path=str(bundle_path), device="cpu")
 
     # 1. Test batch inference
-    query_batch = np.array([
-        [150.0, 50.0, 21.21],
-        [300.0, 100.0, 30.0],
-    ], dtype=np.float32)
+    query_batch = np.array(
+        [
+            [150.0, 50.0, 21.21],
+            [300.0, 100.0, 30.0],
+        ],
+        dtype=np.float32,
+    )
 
     preds = predictor.predict(query_batch)
     assert isinstance(preds, np.ndarray), "Predictions must be a numpy ndarray"
@@ -131,6 +135,7 @@ def test_predictor_invalid_feature_dimension(tmp_path):
 
 def test_predictor_dataframe_schema_assertion(tmp_path):
     import pandas as pd
+
     torch.manual_seed(42)
     x_train_ref = torch.randn(15, 3)
     train_edge_index = build_train_knn_graph(x_train_ref, k=3, loop=False)
@@ -156,21 +161,25 @@ def test_predictor_dataframe_schema_assertion(tmp_path):
     predictor = BlastVibePredictor(str(bundle_path), device="cpu")
 
     # Valid DataFrame matching schema
-    valid_df = pd.DataFrame({
-        "DIS": [200.0, 300.0],
-        "CHARGE": [1000.0, 1500.0],
-        "SD": [6.32, 7.75],
-    })
+    valid_df = pd.DataFrame(
+        {
+            "DIS": [200.0, 300.0],
+            "CHARGE": [1000.0, 1500.0],
+            "SD": [6.32, 7.75],
+        }
+    )
     preds = predictor.predict(valid_df)
     assert len(preds) == 2
     assert np.all(preds >= 0.0)
 
     # Invalid DataFrame with mismatched column schema
-    invalid_df = pd.DataFrame({
-        "DISTANCE": [200.0, 300.0],
-        "EXPLOSIVE": [1000.0, 1500.0],
-        "SCALED_DIST": [6.32, 7.75],
-    })
+    invalid_df = pd.DataFrame(
+        {
+            "DISTANCE": [200.0, 300.0],
+            "EXPLOSIVE": [1000.0, 1500.0],
+            "SCALED_DIST": [6.32, 7.75],
+        }
+    )
     with pytest.raises(ValueError, match="Feature schema mismatch"):
         predictor.predict(invalid_df)
 
@@ -218,4 +227,3 @@ def test_predictor_zero_scale_guard(tmp_path):
     preds = predictor.predict(np.array([[10.0, 25.0, 40.0]]))
     assert len(preds) == 1
     assert np.all(np.isfinite(preds)), "Zero-scale input must not produce NaNs or Infs"
-

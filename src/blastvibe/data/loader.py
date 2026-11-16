@@ -1,7 +1,6 @@
-import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple, Optional, Union
+
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
@@ -12,17 +11,17 @@ logger = setup_logger("blastvibe.data.loader")
 
 
 def compute_scaled_distance(
-    dis: Union[float, int, np.ndarray, pd.Series],
-    charge: Union[float, int, np.ndarray, pd.Series],
-) -> Union[float, np.ndarray, pd.Series]:
+    dis: float | np.ndarray | pd.Series,
+    charge: float | np.ndarray | pd.Series,
+) -> float | np.ndarray | pd.Series:
     """
     Centralized physics calculation of USBM Scaled Distance:
         SD = DIS / sqrt(CHARGE)
-    
+
     Args:
         dis: Distance from blast face in meters (must be >= 0).
         charge: Maximum explosive charge per delay in kilograms (must be > 0).
-        
+
     Returns:
         Scaled Distance in m / kg^0.5.
     """
@@ -59,8 +58,8 @@ class ProcessedFoldData:
 
 
 def load_raw_dataset(
-    file_path: Union[str, Path],
-    feature_cols: Optional[List[str]] = None,
+    file_path: str | Path,
+    feature_cols: list[str] | None = None,
     target_col: str = "SUM",
 ) -> pd.DataFrame:
     """
@@ -96,8 +95,7 @@ def load_raw_dataset(
 
     clean_df = df[feature_cols + [target_col]].dropna().copy()
     logger.info(
-        f"Loaded and validated {len(clean_df)} records from {path}. "
-        f"Features: {feature_cols}, Target: {target_col}"
+        f"Loaded and validated {len(clean_df)} records from {path}. " f"Features: {feature_cols}, Target: {target_col}"
     )
     return clean_df
 
@@ -107,8 +105,8 @@ def prepare_fold_data(
     X_val_raw: np.ndarray,
     y_train_raw: np.ndarray,
     y_val_raw: np.ndarray,
-    train_indices: Optional[np.ndarray] = None,
-    val_indices: Optional[np.ndarray] = None,
+    train_indices: np.ndarray | None = None,
+    val_indices: np.ndarray | None = None,
 ) -> ProcessedFoldData:
     """
     Scales features and targets strictly using training statistics to prevent data leakage.

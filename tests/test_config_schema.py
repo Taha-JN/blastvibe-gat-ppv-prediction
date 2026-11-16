@@ -1,12 +1,10 @@
 import pytest
 from pydantic import ValidationError
+
 from blastvibe.configs.schema import (
-    PipelineConfig,
-    DataConfig,
     CVConfig,
+    PipelineConfig,
     TrainingConfig,
-    GridSearchConfig,
-    ArtifactsConfig,
 )
 
 

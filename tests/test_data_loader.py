@@ -1,11 +1,11 @@
-import os
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
+
 from blastvibe.data.loader import (
+    compute_scaled_distance,
     load_raw_dataset,
     prepare_fold_data,
-    compute_scaled_distance,
 )
 
 

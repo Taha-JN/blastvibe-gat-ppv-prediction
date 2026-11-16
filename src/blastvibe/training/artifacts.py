@@ -1,12 +1,13 @@
-import os
 import json
-from typing import Dict, Any, List, Optional
+import os
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 from sklearn.metrics import mean_absolute_error
 from sklearn.preprocessing import StandardScaler
+from torch import nn
 
 from blastvibe.data.graph import build_train_knn_graph
 from blastvibe.models.gat import GATRegressor
@@ -45,9 +46,9 @@ def save_scaler_parameters(
 
 
 def save_production_model_bundle(
-    model_state_dict: Dict[str, Any],
-    hyperparameters: Dict[str, Any],
-    feature_names: List[str],
+    model_state_dict: dict[str, Any],
+    hyperparameters: dict[str, Any],
+    feature_names: list[str],
     target_name: str,
     x_train_ref: torch.Tensor,
     train_edge_index: torch.Tensor,
@@ -87,15 +88,15 @@ def save_metrics_log(results_df: pd.DataFrame, metrics_path: str) -> str:
 def fit_and_save_production_model(
     X: np.ndarray,
     y: np.ndarray,
-    best_combo: Dict[str, Any],
+    best_combo: dict[str, Any],
     avg_best_epoch: int,
-    feature_names: List[str],
+    feature_names: list[str],
     target_name: str,
     output_dir: str,
     model_dir: str,
     device: torch.device,
-    best_oof_preds: Optional[np.ndarray] = None,
-) -> Dict[str, Any]:
+    best_oof_preds: np.ndarray | None = None,
+) -> dict[str, Any]:
     """
     Fits the final production model deterministically on 100% of the training partition
     for avg_best_epoch epochs and persists secure weights, scalers, and schema metadata.

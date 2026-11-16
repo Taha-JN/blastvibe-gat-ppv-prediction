@@ -1,14 +1,15 @@
-import os
 import itertools
-from typing import Dict, Any, List, Tuple, Optional, Union
+import os
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import torch
 from sklearn.model_selection import KFold
 
-from blastvibe.data.loader import prepare_fold_data, ProcessedFoldData
-from blastvibe.training.engine import TopologyCache, train_single_fold
+from blastvibe.data.loader import ProcessedFoldData, prepare_fold_data
 from blastvibe.training.artifacts import fit_and_save_production_model, save_metrics_log
+from blastvibe.training.engine import TopologyCache, train_single_fold
 from blastvibe.utils.logger import setup_logger
 
 logger = setup_logger("blastvibe.training.grid")
@@ -19,11 +20,11 @@ def build_cv_folds(
     y: np.ndarray,
     n_splits: int = 5,
     shuffle: bool = True,
-    seed: Optional[int] = 42,
-) -> List[ProcessedFoldData]:
+    seed: int | None = 42,
+) -> list[ProcessedFoldData]:
     """Prepares and scales all K-Fold cross-validation splits with zero leakage."""
     kf = KFold(n_splits=n_splits, shuffle=shuffle, random_state=seed if shuffle else None)
-    folds_data: List[ProcessedFoldData] = []
+    folds_data: list[ProcessedFoldData] = []
     for train_idx, val_idx in kf.split(X):
         fold_data = prepare_fold_data(
             X_train_raw=X[train_idx],
@@ -38,21 +39,21 @@ def build_cv_folds(
 
 
 def evaluate_hyperparameter_grid(
-    combos: List[Tuple],
-    folds_data: List[ProcessedFoldData],
+    combos: list[tuple],
+    folds_data: list[ProcessedFoldData],
     topology_cache: TopologyCache,
     epochs: int,
     patience: int,
     eval_interval: int,
     device: torch.device,
     total_samples: int,
-) -> Tuple[pd.DataFrame, Optional[Dict[str, Any]], Optional[np.ndarray], List[int]]:
+) -> tuple[pd.DataFrame, dict[str, Any] | None, np.ndarray | None, list[int]]:
     """Evaluates all hyperparameter combinations across CV folds using cached graph topologies."""
-    results_table: List[Dict[str, Any]] = []
+    results_table: list[dict[str, Any]] = []
     best_mae = float("inf")
-    best_combo: Optional[Dict[str, Any]] = None
-    best_oof_preds: Optional[np.ndarray] = None
-    best_fold_epochs: List[int] = []
+    best_combo: dict[str, Any] | None = None
+    best_oof_preds: np.ndarray | None = None
+    best_fold_epochs: list[int] = []
 
     for idx, (k_val, h_dim, heads, drop, lr, wd) in enumerate(combos, 1):
         fold_metrics_list = []
@@ -117,15 +118,19 @@ def evaluate_hyperparameter_grid(
 def run_cross_validation_grid_search(
     X: np.ndarray,
     y: np.ndarray,
-    config: Union[Dict[str, Any], Any],
+    config: dict[str, Any] | Any,
     device: torch.device,
-) -> Tuple[pd.DataFrame, Optional[Dict[str, Any]]]:
+) -> tuple[pd.DataFrame, dict[str, Any] | None]:
     """
     Coordinates K-Fold Cross-Validation across a hyperparameter grid using topology caching,
     saves the results log, and serializes the optimal production model bundle to disk.
     """
     # Support both Pydantic PipelineConfig and standard dictionary
-    cfg_dict = config.to_dict() if hasattr(config, "to_dict") else (config.model_dump() if hasattr(config, "model_dump") else config)
+    cfg_dict = (
+        config.to_dict()
+        if hasattr(config, "to_dict")
+        else (config.model_dump() if hasattr(config, "model_dump") else config)
+    )
 
     grid_cfg = cfg_dict.get("grid_search", {})
     cv_cfg = cfg_dict.get("cv", {})
@@ -167,14 +172,16 @@ def run_cross_validation_grid_search(
     )
 
     # 3. Generate hyperparameter combinations
-    combos = list(itertools.product(
-        k_neighbors_list,
-        hidden_dim_list,
-        heads_list,
-        dropout_list,
-        lr_list,
-        weight_decay_list,
-    ))
+    combos = list(
+        itertools.product(
+            k_neighbors_list,
+            hidden_dim_list,
+            heads_list,
+            dropout_list,
+            lr_list,
+            weight_decay_list,
+        )
+    )
 
     logger.info(f"Initiating Grid Search: {len(combos)} combinations across {n_splits} CV folds.")
 

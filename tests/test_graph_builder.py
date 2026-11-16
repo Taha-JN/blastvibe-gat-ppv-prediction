@@ -1,9 +1,10 @@
-import torch
 import pytest
+import torch
+
 from blastvibe.data.graph import (
-    build_train_knn_graph,
     build_inductive_graph,
     build_scalable_knn_graph,
+    build_train_knn_graph,
 )
 
 

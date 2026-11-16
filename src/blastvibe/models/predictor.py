@@ -1,16 +1,16 @@
-import os
 import json
+import os
 from pathlib import Path
-from typing import Union, List, Optional, Dict, Any
+
 import numpy as np
 import pandas as pd
 import torch
 from scipy.spatial import cKDTree
 from torch_geometric.utils import k_hop_subgraph
 
-from blastvibe.models.gat import GATRegressor
 from blastvibe.data.graph import build_inductive_graph
 from blastvibe.data.loader import compute_scaled_distance
+from blastvibe.models.gat import GATRegressor
 from blastvibe.utils.logger import setup_logger
 
 logger = setup_logger("blastvibe.models.predictor")
@@ -19,15 +19,16 @@ logger = setup_logger("blastvibe.models.predictor")
 class BlastVibePredictor:
     """
     Self-contained production inference engine for BlastVibe-GNN.
-    
+
     Loads a serialized checkpoint bundle containing model weights, hyperparameters,
     and reference graph topology using secure weights_only=True deserialization (CWE-502 compliant),
     with decoupled feature normalization parameters loaded from JSON.
     """
+
     def __init__(
         self,
-        bundle_path: Union[str, Path],
-        scaler_params_path: Optional[Union[str, Path]] = None,
+        bundle_path: str | Path,
+        scaler_params_path: str | Path | None = None,
         device: str = "auto",
     ):
         bundle_path = str(bundle_path)
@@ -46,7 +47,7 @@ class BlastVibePredictor:
             self.device = torch.device(device)
 
         logger.info(f"Loading BlastVibe model bundle securely from: {bundle_path} to device: {self.device}")
-        
+
         # CWE-502 Remediated: Secure weights_only=True loading prevents arbitrary code execution
         try:
             checkpoint = torch.load(bundle_path, map_location=self.device, weights_only=True)
@@ -122,21 +123,21 @@ class BlastVibePredictor:
             f"hidden_dim={hidden_dim}, heads={heads}, ref_nodes={ref_samples_count})"
         )
 
-    def predict(self, raw_features: Union[np.ndarray, pd.DataFrame, List]) -> np.ndarray:
+    def predict(self, raw_features: np.ndarray | pd.DataFrame | list) -> np.ndarray:
         """
         Executes inductive GNN inference on raw input features.
-        
+
         Production Scaling Note:
         For massive reference datasets (e.g. N > 50,000), performing message passing over the entire
         historical graph creates an O(N) serving bottleneck. In high-throughput production environments,
         real-time inference should utilize a parametric student surrogate model (e.g., distilled MLP or
         calibrated gradient booster) or a localized KD-tree prototype cache that restricts message
         passing to the top-k nearest historical neighbors instead of the entire reference topology.
-        
+
         Args:
             raw_features: Features corresponding to [DIS, CHARGE, SD].
                           Accepts 2D array of shape [N, 3] or 1D array [3].
-                          
+
         Returns:
             np.ndarray of predicted Peak Particle Velocity (PPV) values [N].
         """
@@ -158,9 +159,7 @@ class BlastVibePredictor:
             features = features.reshape(1, -1)
 
         if features.ndim != 2 or features.shape[1] != self.x_train_ref.size(1):
-            raise ValueError(
-                f"Expected features shape [N, {self.x_train_ref.size(1)}], got {features.shape}"
-            )
+            raise ValueError(f"Expected features shape [N, {self.x_train_ref.size(1)}], got {features.shape}")
 
         # Scale features strictly using reference training statistics (vectorized with division-by-zero guard)
         scale_safe = np.where(self.x_scale == 0.0, 1.0, self.x_scale)
@@ -203,7 +202,7 @@ class BlastVibePredictor:
 
         return pred_raw
 
-    def predict_single(self, dis: float, charge: float, sd: Optional[float] = None) -> float:
+    def predict_single(self, dis: float, charge: float, sd: float | None = None) -> float:
         """
         Convenience method to predict PPV for a single blast shot.
         Calculates USBM Scaled Distance automatically if omitted.

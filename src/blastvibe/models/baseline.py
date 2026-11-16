@@ -1,9 +1,10 @@
-from typing import Dict, Any, Tuple, Optional, Union
+from typing import Any
+
 import numpy as np
-from sklearn.model_selection import KFold, GridSearchCV
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import xgboost as xgb
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import GridSearchCV, KFold
 
 from blastvibe.utils.logger import setup_logger
 
@@ -15,11 +16,12 @@ class USBMRegressor:
     Classical USBM empirical attenuation regressor: PPV = K * (SD)^(-beta)
     Fitted via log-linear ordinary least squares.
     """
+
     def __init__(self, sd_index: int = 2) -> None:
         self.sd_index = sd_index
         self.reg = LinearRegression()
-        self.K_val: Optional[float] = None
-        self.beta_val: Optional[float] = None
+        self.K_val: float | None = None
+        self.beta_val: float | None = None
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "USBMRegressor":
         sd = X[:, self.sd_index]
@@ -48,21 +50,21 @@ def run_usbm_baseline(
     n_splits: int = 5,
     random_state: int = 42,
     return_model: bool = False,
-) -> Union[Tuple[Dict[str, float], np.ndarray], Tuple[Dict[str, float], np.ndarray, USBMRegressor]]:
+) -> tuple[dict[str, float], np.ndarray] | tuple[dict[str, float], np.ndarray, USBMRegressor]:
     """
     Evaluates the classical USBM (United States Bureau of Mines) empirical blast
     attenuation formulation:
         PPV = K * (SD)^(-beta)
     fitted via log-linear ordinary least squares regression on the Scaled Distance (SD):
         ln(PPV) = ln(K) - beta * ln(SD)
-        
+
     Args:
         X: Feature matrix [N, D] where column at sd_index is Scaled Distance.
         y: True Peak Particle Velocity (PPV) target values [N].
         sd_index: Column index of Scaled Distance (SD). Defaults to 2.
         n_splits: Number of cross-validation splits.
         random_state: Random state for deterministic K-Fold split.
-        
+
     Returns:
         metrics: Dictionary of aggregated out-of-fold metrics (r2, mae, mse, rmse).
         oof_predictions: Array of out-of-fold predictions.
@@ -123,14 +125,14 @@ def run_xgboost_baseline(
     y: np.ndarray,
     n_splits: int = 5,
     random_state: int = 42,
-    param_grid: Optional[Dict[str, Any]] = None,
+    param_grid: dict[str, Any] | None = None,
     inner_cv_splits: int = 3,
     return_model: bool = False,
-) -> Union[Tuple[Dict[str, float], np.ndarray], Tuple[Dict[str, float], np.ndarray, xgb.XGBRegressor]]:
+) -> tuple[dict[str, float], np.ndarray] | tuple[dict[str, float], np.ndarray, xgb.XGBRegressor]:
     """
     Evaluates an equitable industrial baseline XGBoost Regressor using nested
     cross-validation (GridSearchCV within outer K-Fold).
-    
+
     Guarantees equivalent hyperparameter tuning rigor to the GAT grid search.
     """
     if param_grid is None:
