@@ -93,6 +93,7 @@ def build_inductive_graph(
     x_query: torch.Tensor,
     train_edge_index: torch.Tensor,
     k: int = 8,
+    spatial_tree: Optional[cKDTree] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Constructs an inductive inference graph for out-of-sample query/test nodes
@@ -109,6 +110,8 @@ def build_inductive_graph(
         x_query: Out-of-sample query feature tensor of shape [N_query, D].
         train_edge_index: Precomputed training edges of shape [2, E_train].
         k: Number of nearest neighbors to connect each query node to.
+        spatial_tree: Optional precomputed scipy.spatial.cKDTree of x_train to eliminate
+                      redundant tree construction overhead during inference.
         
     Returns:
         x_combined: Combined node feature tensor of shape [N_train + N_query, D].
@@ -128,22 +131,22 @@ def build_inductive_graph(
 
     # Attempt PyG accelerated knn if available with compiled pyg-lib; fall back to scalable cKDTree
     used_pyg = False
-    try:
-        import torch_geometric.typing as pyg_typing
-        if getattr(pyg_typing, "WITH_KNN", False):
-            from torch_geometric.nn import knn
-            assign_index = knn(x=x_train, y=x_query, k=k)
-            src_nodes = assign_index[1]
-            dst_nodes = assign_index[0] + n_train
-            used_pyg = True
-    except (ImportError, RuntimeError, AttributeError):
-        pass
+    if spatial_tree is None:
+        try:
+            import torch_geometric.typing as pyg_typing
+            if getattr(pyg_typing, "WITH_KNN", False):
+                from torch_geometric.nn import knn
+                assign_index = knn(x=x_train, y=x_query, k=k)
+                src_nodes = assign_index[1]
+                dst_nodes = assign_index[0] + n_train
+                used_pyg = True
+        except (ImportError, RuntimeError, AttributeError):
+            pass
 
     if not used_pyg:
         # High-performance, O(N_query * log(N_train)) scalable cKDTree spatial indexing
-        x_train_np = x_train.detach().cpu().numpy()
         x_query_np = x_query.detach().cpu().numpy()
-        tree = cKDTree(x_train_np)
+        tree = spatial_tree if spatial_tree is not None else cKDTree(x_train.detach().cpu().numpy())
         _, neighbor_indices = tree.query(x_query_np, k=k)
         if k == 1:
             neighbor_indices = neighbor_indices.reshape(-1, 1)

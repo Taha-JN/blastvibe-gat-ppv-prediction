@@ -5,6 +5,7 @@ from typing import Union, List, Optional, Dict, Any
 import numpy as np
 import pandas as pd
 import torch
+from scipy.spatial import cKDTree
 from torch_geometric.utils import k_hop_subgraph
 
 from blastvibe.models.gat import GATRegressor
@@ -77,6 +78,9 @@ class BlastVibePredictor:
         self.x_train_ref = checkpoint["x_train_ref"].to(device=self.device, dtype=torch.float32)
         self.train_edge_index = checkpoint["train_edge_index"].to(device=self.device, dtype=torch.long)
         self.k_neighbors = int(self.hyperparameters.get("k_neighbors", 8))
+
+        # Precompute and cache spatial index ONCE during cold start to eliminate O(N log N) inference latency bottleneck
+        self._spatial_tree = cKDTree(self.x_train_ref.detach().cpu().numpy())
 
         # Load decoupled feature normalization parameters from JSON
         if scaler_params_path is None:
@@ -170,6 +174,7 @@ class BlastVibePredictor:
                 x_query=x_query,
                 train_edge_index=self.train_edge_index,
                 k=self.k_neighbors,
+                spatial_tree=self._spatial_tree,
             )
 
             # Localize inference graph via dynamic k-hop subgraph extraction matching GNN architecture depth

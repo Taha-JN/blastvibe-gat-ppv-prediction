@@ -78,7 +78,7 @@ class GATRegressor(nn.Module):
             return self.convs[1]
         raise AttributeError("This GATRegressor instance has only 1 convolutional layer.")
 
-    def load_state_dict(self, state_dict: Dict[str, Any], strict: bool = True, assign: bool = False):
+    def load_state_dict(self, state_dict: Dict[str, Any], strict: bool = True, **kwargs):
         """
         Seamlessly remaps legacy checkpoints containing 'gat1.*' and 'gat2.*' keys
         into the modern ModuleList 'convs.0.*' and 'convs.1.*' structure.
@@ -93,7 +93,7 @@ class GATRegressor(nn.Module):
                 remapped_state_dict[new_key] = value
             else:
                 remapped_state_dict[key] = value
-        return super().load_state_dict(remapped_state_dict, strict=strict, assign=assign)
+        return super().load_state_dict(remapped_state_dict, strict=strict, **kwargs)
 
     def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
         """

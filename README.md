@@ -13,7 +13,7 @@
 
 **BlastVibe-GNN** is a production-grade Machine Learning pipeline engineered to predict blast-induced ground vibration (Peak Particle Velocity - PPV) using **Graph Attention Networks (GAT)**. Combining domain-specific blast mechanics (USBM Scaled Distance) with geometric deep learning, the architecture conducts **tabular inference using KNN feature-space graphs**.
 
-Designed for enterprise reliability, the system implements a **zero-leakage inductive bipartite graph topology**, Pure PyTorch GPU-accelerated spatial indexing using `torch.cdist` and `knn_graph`, equitable nested cross-validation benchmarking against XGBoost and classical physics laws, and a decoupled, secure inference engine hardened against arbitrary code execution vulnerabilities (**CWE-502**).
+Designed for enterprise reliability, the system implements a **zero-leakage inductive bipartite graph topology**, $O(N \log N)$ highly scalable spatial indexing via `scipy.spatial.cKDTree` on CPU, equitable nested cross-validation benchmarking against XGBoost and classical physics laws, and a decoupled, secure inference engine hardened against arbitrary code execution vulnerabilities (**CWE-502**).
 
 The pipeline enforces strict partitioning: **the model is evaluated using a strict 80/20 data split. The inductive graph trains on 160 reference nodes (80% of the 200 total records) and is independently benchmarked on a completely unseen hold-out test set of 40 nodes.**
 
@@ -34,7 +34,7 @@ flowchart LR
 
     subgraph DT["2. Inductive Graph Training"]
         direction TB
-        Spatial["Spatial Indexing<br/>(torch.cdist / knn_graph)"]
+        Spatial["Spatial Indexing<br/>(cKDTree on CPU)"]
         Graph["Bipartite Topology<br/>(Train -> Query edges only)"]
         GAT["Multi-Head GAT<br/>(PyTorch Geometric)"]
         Early["100% X_train Fit &<br/>CV-Optimal Epochs"]
@@ -57,7 +57,8 @@ flowchart LR
 ## ⚡ Key Engineering Features
 
 - **Leak-Free Inductive Graph Construction**: Eliminated transductive data leakage by constructing a strictly directed bipartite graph during evaluation and inference. Message passing flows exclusively from reference training nodes to unseen query nodes (`train -> query`), preventing target contamination and inter-query leakage.
-- **Scalable $O(N \log N)$ Spatial Indexing**: High-performance spatial indexing using `scipy.spatial.cKDTree`. Eliminates $O(N^2)$ memory and compute bottlenecks of pairwise distance matrices, dropping self-loops by querying $k+1$ neighbors.
+- **Scalable $O(N \log N)$ Spatial Indexing**: High-performance spatial indexing using `scipy.spatial.cKDTree` on CPU. Eliminates $O(N^2)$ memory and compute bottlenecks of pairwise distance matrices, dropping self-loops by querying $k+1$ neighbors.
+- **Cold-Start cKDTree Spatial Index Caching**: The historical reference spatial index is precomputed and cached once during predictor initialization (`self._spatial_tree`), eliminating redundant $O(N \log N)$ tree reconstruction overhead and accelerating inference throughput.
 - **Dynamic Receptive Field Subgraph Inference**: Localized $k$-hop subgraph extraction dynamically bound to the actual GNN architecture depth (`num_hops = len(model.convs)`), ensuring zero receptive field truncation for deep architectures.
 - **Strict Pydantic Configuration Validation**: Master `PipelineConfig` schema powered by Pydantic v2 enforces boundary validation, strict type safety, and `extra="forbid"` fail-fast checks.
 - **Decoupled Single Responsibility Training**: Monolithic training pipeline refactored into focused modules: `engine` (fold fitting & caching), `grid` (CV orchestration), and `artifacts` (production serialization).
@@ -69,13 +70,30 @@ flowchart LR
 
 ---
 
-## 📊 Empirical Benchmarks (5-Fold CV)
+## 📊 Empirical Benchmarks
+
+### 1. Symmetrical Hold-out Test Set Benchmarks (40 Unseen Samples)
+
+| Model Architecture | R² Score | MAE (mm/s) | MSE | RMSE (mm/s) | Scientific Assessment |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **Classical USBM Physics Law** | 0.6575 | 17.46 | 669.48 | 25.87 | Closed-form empirical law ($PPV = 3507.96 \cdot SD^{-1.46}$). |
+| **Tuned XGBoost (Nested CV)** | 0.6337 | 18.92 | 716.10 | 26.76 | Gradient-boosted decision trees fitted on 160 training samples. |
+| **BlastVibe-GAT (Ours)** | **0.7184** | **17.21** | **550.57** | **23.46** | **Top generalization.** Lowest error on unseen test records. |
+
+### 2. 5-Fold Cross-Validation Benchmarks (160 Training Partition Samples)
 
 | Model Architecture | R² Score | MAE (mm/s) | RMSE (mm/s) | Scientific Assessment |
-| :--- | :--- | :--- | :--- | :--- |
+| :--- | :---: | :---: | :---: | :--- |
 | **Classical USBM Physics Law** | 0.7372 | 17.05 | 24.47 | Strong single-variable physical baseline ($K=3650.64, \beta=1.47$). |
 | **Tuned XGBoost (Nested CV)** | 0.7244 | 18.11 | 25.11 | Rigorously tuned via nested 3-fold inner `GridSearchCV`. |
-| **BlastVibe-GAT (Ours)** | **0.7477** | **17.27** | **24.56** | **Best overall.** Dynamically weights neighborhood energy dissipation. |
+| **BlastVibe-GAT (Ours)** | **0.7477** | **17.27** | **24.56** | Best CV $R^2$ across 5-fold hyperparameter validation. |
+
+### 🔬 Scientific Note on Hypothesis Testing & Enterprise Generalization
+
+A rigorous Wilcoxon signed-rank hypothesis test on hold-out absolute prediction errors demonstrates that on this compact 200-sample dataset, the prediction differences between BlastVibe-GAT and the classical USBM physical attenuation law are statistically equivalent ($p = 0.8402 > 0.05$). 
+
+**Why use a Graph Attention Network?**
+While the empirical USBM power law performs remarkably well on homogeneous rock masses with a single derived feature ($SD$), real-world mining and civil infrastructure projects capture multi-dimensional geotechnical features (e.g., rock mass rating, joint orientations, explosive delay timing, distance to multiple blast free faces). Classical 1D power laws collapse in these high-dimensional settings. BlastVibe-GAT establishes the geometric deep learning foundation: its multi-head attention mechanism dynamically weights neighborhood feature similarities and detects complex non-linear spatial vibration dissipation patterns across high-dimensional feature spaces.
 
 ---
 
@@ -200,6 +218,6 @@ pytest tests/ -v
 ## 🙏 Acknowledgments & Dependencies
 
 - **[PyTorch Geometric (PyG)](https://pyg.org/)**: Multi-head Graph Attention Network (`GATConv`) layers.
-- **[PyTorch](https://pytorch.org/)**: Pure PyTorch GPU-accelerated spatial indexing using `torch.cdist` and `knn_graph`.
+- **[SciPy](https://scipy.org/)**: $O(N \log N)$ highly scalable spatial indexing via `scipy.spatial.cKDTree` on CPU.
 - **[XGBoost](https://xgboost.readthedocs.io/)**: Gradient Boosted Decision Trees baseline.
 - **[Scikit-Learn](https://scikit-learn.org/)**: Preprocessing, cross-validation splitting, and evaluation metrics.
