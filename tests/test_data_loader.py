@@ -65,3 +65,20 @@ def test_prepare_fold_data_no_leakage():
     np.testing.assert_allclose(fold_data.scaler_x.mean_, [15.0, 150.0, 1.5])
     # Scaler y mean must match y_train mean (7.5)
     np.testing.assert_allclose(fold_data.scaler_y.mean_, [7.5])
+
+
+def test_load_raw_dataset_dirty_data_handling(tmp_path):
+    """Asserts that dirty strings and null rows are cleaned before computing Scaled Distance."""
+    dirty_data = {
+        "DIS": [100.0, "CORRUPTED", None, 400.0],
+        "CHARGE": [25.0, 100.0, 50.0, 100.0],
+        "SUM": [50.0, 20.0, 15.0, 30.0],
+    }
+    csv_file = tmp_path / "dirty_data.csv"
+    pd.DataFrame(dirty_data).to_csv(csv_file, index=False)
+
+    clean_df = load_raw_dataset(str(csv_file))
+    # Two valid records should remain (indices 0 and 3)
+    assert len(clean_df) == 2
+    assert "SD" in clean_df.columns
+    np.testing.assert_allclose(clean_df["SD"].values, [20.0, 40.0])

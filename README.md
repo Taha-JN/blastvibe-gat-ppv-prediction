@@ -127,15 +127,20 @@ While the empirical USBM power law performs remarkably well on homogeneous rock 
 │       │   ├── gat.py              # PyG Multi-Head Graph Attention Network (GATRegressor)
 │       │   ├── baseline.py         # USBM physics law & Nested-CV XGBoost benchmarks
 │       │   └── predictor.py        # Secure standalone inference engine (dynamic subgraphs, weights_only=True)
+│       ├── serving/
+│       │   ├── __init__.py
+│       │   └── app.py              # Production FastAPI REST serving layer (Pydantic validation)
 │       ├── training/
 │       │   ├── __init__.py
 │       │   ├── engine.py           # Single-fold model training, early stopping & topology caching
 │       │   ├── grid.py             # K-Fold CV partitioning & hyperparameter grid search
 │       │   ├── artifacts.py        # Production re-fitting, JSON scalers & artifact persistence
 │       │   └── trainer.py          # Unified training facade re-exporting decoupled modules
-│       └── utils/
-│           ├── __init__.py
-│           └── logger.py           # Centralized structured logging
+│       ├── utils/
+│       │   ├── __init__.py
+│       │   ├── logger.py           # Centralized structured logging
+│       │   └── seed.py             # Global deterministic seeding utility
+│       └── main.py                 # Module CLI entry point (blastvibe-train)
 ├── tests/                          # Automated PyTest invariant & contract suite
 │   ├── __init__.py
 │   ├── test_baselines.py           # Asserts physical constants recovery & XGBoost nested CV
@@ -144,6 +149,7 @@ While the empirical USBM power law performs remarkably well on homogeneous rock 
 │   ├── test_graph_builder.py       # Asserts cKDTree spatial indexing & zero-leakage invariants
 │   ├── test_model_forward.py       # Asserts tensor shapes, dynamic ModuleList & gradient flow
 │   ├── test_predictor.py           # Asserts CWE-502 safe deserialization & zero-scale guards
+│   ├── test_serving.py             # Asserts FastAPI endpoints & physical boundary validation
 │   └── test_trainer.py             # Asserts topology caching & out-of-fold array population
 └── main.py                         # Production CLI entry point
 ```
@@ -180,15 +186,20 @@ pip install -e .
 ### Step 1: Run Full Training & Benchmark Pipeline
 Execute the end-to-end training pipeline. This partitions the data into a strict 80/20 train/test split, runs nested CV benchmarks for USBM and XGBoost, performs 5-fold cross-validation across the GAT hyperparameter grid, trains the final production model on 100% of the training partition (160 nodes), and verifies inductive generalization on the untouched 40-node holdout test set:
 ```bash
+# Via installed package CLI:
+blastvibe-train
+
+# Or directly via script:
 python main.py
 ```
 *Secure model weights (`best_gat_model.pt`) and scaler parameters (`scaler_params.json`) are serialized to `artifacts/models/`.*
 
-### Step 2: Standalone Production Inference
-Deploy the trained model in any downstream microservice or REST API using the self-contained `BlastVibePredictor` class. No raw training files are required at inference time:
+### Step 2: Standalone Production Python Inference
+Deploy the trained model in any downstream microservice using the self-contained `BlastVibePredictor` class:
 
 ```python
 import numpy as np
+import pandas as pd
 from blastvibe.models.predictor import BlastVibePredictor
 
 # 1. Initialize secure serving engine (loads weights_only=True & JSON scalers)
@@ -198,16 +209,23 @@ predictor = BlastVibePredictor("artifacts/models/best_gat_model.pt", device="cpu
 ppv = predictor.predict_single(dis=400.0, charge=1850.0)
 print(f"Predicted Ground Vibration: {ppv:.2f} mm/s")
 
-# 3. Batch prediction on raw features [DIS, CHARGE, SD]
-batch_features = np.array([
-    [300.0, 1850.0, 6.97],
-    [500.0, 1950.0, 11.32]
+# 3. Resilient DataFrame prediction (auto-derives SD and reorders columns dynamically)
+df = pd.DataFrame([
+    {"CHARGE": 1850.0, "DIS": 300.0},
+    {"CHARGE": 1950.0, "DIS": 500.0}
 ])
-predictions = predictor.predict(batch_features)
+predictions = predictor.predict(df)
 print(predictions)
 ```
 
-### Step 3: Run Automated Test Suite
+### Step 3: Run Production FastAPI REST Service
+Launch the high-performance ASGI REST serving API:
+```bash
+uvicorn blastvibe.serving.app:app --host 0.0.0.0 --port 8000
+```
+Interactive OpenAPI documentation will be accessible at `http://localhost:8000/docs`.
+
+### Step 4: Run Automated Test Suite
 Validate all mathematical contracts, graph topology invariants, and serialization round-trips via `pytest`:
 ```bash
 pytest tests/ -v

@@ -82,8 +82,20 @@ def load_raw_dataset(
     if missing:
         raise ValueError(f"Dataset is missing required columns: {missing}. Present: {list(df.columns)}")
 
-    # Data hygiene & domain validation handled via centralized physics computation
-    # Physics-based feature engineering (USBM Scaled Distance)
+    # 1. Coerce required and target columns to numeric, replacing unparseable dirty strings with NaN
+    for col in required:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # 2. Filter out null/NaN records prior to physics computation
+    df = df.dropna(subset=required).copy()
+
+    # 3. Execute domain validations (CHARGE > 0, DIS >= 0)
+    if (df["CHARGE"] <= 0).any():
+        raise ValueError("Detected non-positive CHARGE values; explosive charge must be strictly positive.")
+    if (df["DIS"] < 0).any():
+        raise ValueError("Detected negative DIS values; distance must be non-negative.")
+
+    # 4. Physics-based feature engineering (USBM Scaled Distance: SD = DIS / sqrt(CHARGE))
     df["SD"] = compute_scaled_distance(df["DIS"], df["CHARGE"])
 
     if feature_cols is None:
@@ -95,7 +107,8 @@ def load_raw_dataset(
 
     clean_df = df[feature_cols + [target_col]].dropna().copy()
     logger.info(
-        f"Loaded and validated {len(clean_df)} records from {path}. " f"Features: {feature_cols}, Target: {target_col}"
+        f"Loaded and validated {len(clean_df)} records from {path}. "
+        f"Features: {feature_cols}, Target: {target_col}"
     )
     return clean_df
 

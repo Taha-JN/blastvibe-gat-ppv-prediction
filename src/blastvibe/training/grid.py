@@ -155,6 +155,8 @@ def run_cross_validation_grid_search(
 
     output_dir = art_cfg.get("output_dir", "artifacts")
     model_dir = art_cfg.get("model_dir", "artifacts/models")
+    metrics_file = art_cfg.get("metrics_file", os.path.join(output_dir, "grid_search_results.csv"))
+    best_model_file = art_cfg.get("best_model_file", os.path.join(model_dir, "best_gat_model.pt"))
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
 
@@ -197,8 +199,7 @@ def run_cross_validation_grid_search(
         total_samples=len(X),
     )
 
-    metrics_path = os.path.join(output_dir, "grid_search_results.csv")
-    save_metrics_log(results_df, metrics_path)
+    save_metrics_log(results_df, metrics_file)
 
     # 5. Fit production model on 100% of training data using CV-optimal mean epochs
     best_bundle = None
@@ -214,6 +215,8 @@ def run_cross_validation_grid_search(
             output_dir=output_dir,
             model_dir=model_dir,
             device=device,
+            best_model_path=best_model_file,
+            seed=seed,
             best_oof_preds=best_oof_preds,
         )
 

@@ -144,11 +144,24 @@ class BlastVibePredictor:
         if isinstance(raw_features, (list, tuple)):
             features = np.asarray(raw_features, dtype=np.float32)
         elif isinstance(raw_features, pd.DataFrame):
-            if list(raw_features.columns) != self.feature_names:
+            df_in = raw_features.copy()
+            # Auto-derive Scaled Distance (SD = DIS / sqrt(CHARGE)) if omitted but DIS and CHARGE exist
+            if "SD" not in df_in.columns and {"DIS", "CHARGE"}.issubset(df_in.columns):
+                df_in["SD"] = compute_scaled_distance(df_in["DIS"], df_in["CHARGE"])
+
+            missing_cols = [c for c in self.feature_names if c not in df_in.columns]
+            if missing_cols:
                 raise ValueError(
-                    f"Feature schema mismatch! Expected columns {self.feature_names}, got {list(raw_features.columns)}"
+                    f"Feature schema mismatch! Missing required features: {missing_cols}. "
+                    f"Expected columns {self.feature_names}, got {list(raw_features.columns)}"
                 )
-            features = raw_features[self.feature_names].values.astype(np.float32)
+
+            # Robust dynamic column projection regardless of input column ordering
+            features = (
+                df_in[self.feature_names]
+                .apply(pd.to_numeric, errors="raise")
+                .values.astype(np.float32)
+            )
         elif isinstance(raw_features, np.ndarray):
             features = raw_features.astype(np.float32)
         else:

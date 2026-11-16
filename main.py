@@ -1,22 +1,34 @@
 import argparse
+import random
 from pathlib import Path
-from typing import Union
-import yaml
-import torch
+
 import numpy as np
+import torch
+import yaml
 from scipy.stats import wilcoxon
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
 from blastvibe.configs.schema import PipelineConfig
 from blastvibe.data.loader import load_raw_dataset
-from blastvibe.models.baseline import run_xgboost_baseline, run_usbm_baseline
+from blastvibe.models.baseline import run_usbm_baseline, run_xgboost_baseline
 from blastvibe.models.predictor import BlastVibePredictor
 from blastvibe.training.grid import run_cross_validation_grid_search
 from blastvibe.utils.logger import setup_logger
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 logger = setup_logger("blastvibe.main")
+
+
+def set_seed(seed: int = 42) -> None:
+    """Enforces deterministic global seeding across Python, NumPy, and PyTorch (CPU and CUDA)."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 def parse_args():
@@ -43,7 +55,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_config(config_path: Union[str, Path]) -> PipelineConfig:
+def load_config(config_path: str | Path) -> PipelineConfig:
     config_file = Path(config_path).resolve()
     if not config_file.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_file}")
@@ -56,6 +68,7 @@ def load_config(config_path: Union[str, Path]) -> PipelineConfig:
 def main():
     args = parse_args()
     pipeline_config = load_config(args.config)
+    set_seed(pipeline_config.cv.random_state)
     config = pipeline_config.to_dict()
 
     # Modernized path resolution using pathlib.Path
@@ -103,7 +116,7 @@ def main():
         logger.info("-" * 40)
         logger.info("Running Empirical Physics Baseline: USBM Attenuation Law (on 80% Train)")
         logger.info("-" * 40)
-        usbm_metrics, usbm_oof, usbm_model = run_usbm_baseline(
+        _usbm_metrics, usbm_oof, usbm_model = run_usbm_baseline(
             X=X_train,
             y=y_train,
             sd_index=feature_cols.index("SD") if "SD" in feature_cols else 2,
@@ -115,7 +128,7 @@ def main():
         logger.info("-" * 40)
         logger.info("Running Equitable Industrial Baseline: Tuned XGBoost (on 80% Train)")
         logger.info("-" * 40)
-        baseline_metrics, _, xgb_model = run_xgboost_baseline(
+        _baseline_metrics, _, xgb_model = run_xgboost_baseline(
             X=X_train,
             y=y_train,
             n_splits=pipeline_config.cv.n_splits,
@@ -135,7 +148,7 @@ def main():
     logger.info("Running Leak-Free Inductive GAT Cross-Validation & Tuning (on 80% Train)")
     logger.info("-" * 40)
 
-    results_df, best_bundle = run_cross_validation_grid_search(
+    _results_df, best_bundle = run_cross_validation_grid_search(
         X=X_train,
         y=y_train,
         config=config,

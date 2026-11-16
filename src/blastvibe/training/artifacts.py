@@ -12,6 +12,7 @@ from torch import nn
 from blastvibe.data.graph import build_train_knn_graph
 from blastvibe.models.gat import GATRegressor
 from blastvibe.utils.logger import setup_logger
+from blastvibe.utils.seed import set_seed
 
 logger = setup_logger("blastvibe.training.artifacts")
 
@@ -95,16 +96,21 @@ def fit_and_save_production_model(
     output_dir: str,
     model_dir: str,
     device: torch.device,
+    best_model_path: str | None = None,
+    seed: int = 42,
     best_oof_preds: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """
     Fits the final production model deterministically on 100% of the training partition
     for avg_best_epoch epochs and persists secure weights, scalers, and schema metadata.
     """
+    # Enforce deterministic global seeding for model initialization & fitting
+    set_seed(seed)
+
     logger.info("-" * 40)
     logger.info(
         f"Fitting Production Model on 100% of Training Partition ({len(X)} records) "
-        f"for {avg_best_epoch} epochs (mean optimal epoch across CV folds) "
+        f"for {avg_best_epoch} epochs (mean optimal epoch across CV folds, seed={seed}) "
         f"using optimal hyperparameters: {best_combo}"
     )
     logger.info("-" * 40)
@@ -155,10 +161,15 @@ def fit_and_save_production_model(
 
     logger.info(f"Fitted production model with training MAE: {final_train_mae:.4f}")
 
-    # Decouple PyTorch weights from Scikit-Learn objects (CWE-502 remediation)
-    save_scaler_parameters(scaler_x, scaler_y, model_dir)
+    # Resolve target model artifact path, respecting configuration
+    if best_model_path is None:
+        best_model_path = os.path.join(model_dir, "best_gat_model.pt")
 
-    best_model_path = os.path.join(model_dir, "best_gat_model.pt")
+    scaler_dir = os.path.dirname(best_model_path) or model_dir
+
+    # Decouple PyTorch weights from Scikit-Learn objects (CWE-502 remediation)
+    save_scaler_parameters(scaler_x, scaler_y, scaler_dir)
+
     save_production_model_bundle(
         model_state_dict=final_model.state_dict(),
         hyperparameters=best_combo,

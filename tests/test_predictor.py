@@ -227,3 +227,59 @@ def test_predictor_zero_scale_guard(tmp_path):
     preds = predictor.predict(np.array([[10.0, 25.0, 40.0]]))
     assert len(preds) == 1
     assert np.all(np.isfinite(preds)), "Zero-scale input must not produce NaNs or Infs"
+
+
+def test_predictor_dataframe_disordered_columns_and_auto_sd(tmp_path):
+    """
+    Asserts dynamic projection:
+    1. Permuted/disordered DataFrame columns [CHARGE, SD, DIS] are successfully projected.
+    2. Missing SD column with present DIS and CHARGE is automatically derived via physics law.
+    """
+    import pandas as pd
+
+    torch.manual_seed(42)
+    x_train_ref = torch.randn(15, 3)
+    train_edge_index = build_train_knn_graph(x_train_ref, k=3, loop=False)
+    model = GATRegressor(in_dim=3, hidden_dim=8, heads=1, dropout=0.0)
+
+    scaler_x = StandardScaler().fit(x_train_ref.numpy())
+    scaler_y = StandardScaler().fit(np.arange(15).reshape(-1, 1))
+    _save_mock_scaler_params(tmp_path, scaler_x, scaler_y)
+
+    bundle_path = tmp_path / "bundle_proj.pt"
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "hyperparameters": {"k_neighbors": 3, "hidden_dim": 8, "heads": 1},
+            "feature_names": ["DIS", "CHARGE", "SD"],
+            "target_name": "SUM",
+            "x_train_ref": x_train_ref,
+            "train_edge_index": train_edge_index,
+        },
+        str(bundle_path),
+    )
+
+    predictor = BlastVibePredictor(str(bundle_path), device="cpu")
+
+    # 1. Permuted / Disordered columns [CHARGE, SD, DIS]
+    disordered_df = pd.DataFrame(
+        {
+            "CHARGE": [1000.0, 1500.0],
+            "SD": [6.32, 7.75],
+            "DIS": [200.0, 300.0],
+        }
+    )
+    preds_disordered = predictor.predict(disordered_df)
+    assert len(preds_disordered) == 2
+    assert np.all(preds_disordered >= 0.0)
+
+    # 2. Auto-derive missing SD from [DIS, CHARGE]
+    missing_sd_df = pd.DataFrame(
+        {
+            "CHARGE": [1600.0, 2500.0],
+            "DIS": [400.0, 500.0],
+        }
+    )
+    preds_auto_sd = predictor.predict(missing_sd_df)
+    assert len(preds_auto_sd) == 2
+    assert np.all(preds_auto_sd >= 0.0)
